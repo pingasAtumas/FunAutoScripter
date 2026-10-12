@@ -52,14 +52,12 @@ python funautoscripter.py folder/ --recursive --overwrite
 
 ## Limitations
 
-- **Never tested on real video** — only validated on synthetic test videos with known ground truth
 - **No fade/dissolve detection** — only hard cuts are detected; gradual transitions produce bad flow briefly
 - **Single region per video** — the automatic ROI follows whatever moves when action stops; use `--region` or chapters to fix this
 - **Amplitude not comparable across scenes** — each scene is normalised to its own range
 - **Subtle motion has a hard floor** — below ~0.1 px at analysis resolution, nothing works regardless of settings
 - **VR180 fisheye distortion** — not corrected
 - **Video rotation metadata** — not handled
-- **GUI never tested on a real screen** — only tested headless via Xvfb; no GPU testing
 
 ## Testing
 

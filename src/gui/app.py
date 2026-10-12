@@ -18,6 +18,16 @@ from src.gui.config import (CW, CH, MAXC, PALETTE_RGB, PARAMS, TIPS, TIPS_UI, AU
                              clean_param, load_user_presets)
 from src.gui.frame_source import FrameSource
 
+
+def _fmt_eta(seconds):
+    s = int(seconds)
+    if s < 60:
+        return f"{s}s"
+    if s < 3600:
+        return f"{s // 60}m {s % 60:02d}s"
+    return f"{s // 3600}h {(s % 3600) // 60:02d}m"
+
+
 class App:
     def __init__(self, video=None, captura=None, tempo=None):
         self.alive = True
@@ -298,7 +308,7 @@ class App:
         if self.prog_prefix and el > 1.0 and n:
             fps_calc = n / el
             eta = (total - n) / fps_calc if fps_calc > 0 else 0.0
-            self.status = f"{self.prog_prefix} | {fl.BACKEND['text']} | {fps_calc:.0f} fps | ETA {eta:.0f}s"
+            self.status = f"{self.prog_prefix} | {fl.BACKEND['text']} | {fps_calc:.0f} fps | ETA {_fmt_eta(eta)}"
 
     def do_flow(self):
         a = copy.copy(self.a)
@@ -2249,7 +2259,7 @@ class App:
                     not_started_est = sum(est_frames[k]
                                          for k in range(len(items)) if totals[k] == 0 and not ended[k])
                     est_remaining = known_remaining + not_started_est
-                    eta_str = f" | ETA {est_remaining / fps:.0f}s"
+                    eta_str = f" | ETA {_fmt_eta(est_remaining / fps)}"
                 self.status = (f"Batch {done_n}/{len(items)}" + (f", {len(running)} running" if workers > 1 else "")
                                + f": {names} | {fl.BACKEND['text']} | {fps:.0f} fps{eta_str}")
 
@@ -2267,7 +2277,7 @@ class App:
                     el_vid = time.time() - vid_t0[i]
                     fps_vid = n / el_vid if el_vid > 0.5 and n > 0 else 0.0
                     eta_vid = (total - n) / fps_vid if fps_vid > 0 else 0.0
-                    detail = (f"{fps_vid:.0f} fps  ETA {eta_vid:.0f}s" if fps_vid > 0
+                    detail = (f"{fps_vid:.0f} fps  ETA {_fmt_eta(eta_vid)}" if fps_vid > 0
                               else f"{n}/{total}")
                     self.vid_progress[ri] = (frac, detail)
 

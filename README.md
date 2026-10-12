@@ -4,6 +4,8 @@ Fast funscript generator for interactive experiences. Runs fully unattended, sup
 
 Built on classical optical flow (OpenCV Farneback). No AI, no neural networks, no GPU required.
 
+> Proudly 100% vibe coded.
+
 ## Requirements
 
 - Python 3 with numpy, scipy, opencv-python, matplotlib (only for `--plot`)

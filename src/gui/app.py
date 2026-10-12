@@ -2214,6 +2214,14 @@ class App:
             ended = [False] * len(items)
             running = set()
             vid_t0 = {}          # batch index → time when first frame reported for that video
+            # probe durations upfront so ETA for not-started videos uses real lengths, not averages
+            est_frames = []
+            for b in items:
+                try:
+                    _, _, dur = fl.probe(b.video)
+                    est_frames.append(max(1, int(dur * base.fps)))
+                except Exception:
+                    est_frames.append(0)
             self.start_progress("")
             # reset per-video progress bars for videos not in this batch
             self.vid_progress = [(0.0, "")] * len(self.rows)
@@ -2234,8 +2242,16 @@ class App:
                 fps = sum(frames) / el if el > 1.0 else 0
                 names = ", ".join(os.path.basename(items[k].video) for k in sorted(running)[:2])
                 self.bulk_msg = f"{done_n}/{len(items)} done"
+                eta_str = ""
+                if fps > 0:
+                    known_remaining = sum(max(0, totals[k] - frames[k])
+                                         for k in range(len(items)) if totals[k] > 0 and not ended[k])
+                    not_started_est = sum(est_frames[k]
+                                         for k in range(len(items)) if totals[k] == 0 and not ended[k])
+                    est_remaining = known_remaining + not_started_est
+                    eta_str = f" | ETA {est_remaining / fps:.0f}s"
                 self.status = (f"Batch {done_n}/{len(items)}" + (f", {len(running)} running" if workers > 1 else "")
-                               + f": {names} | {fl.BACKEND['text']} | {fps:.0f} fps")
+                               + f": {names} | {fl.BACKEND['text']} | {fps:.0f} fps{eta_str}")
 
             def prog(i, n, total):
                 if self.cancel_flag:
@@ -2325,7 +2341,7 @@ class App:
             # windows where the axis direction was decided by continuity and flipped relative to the previous window
             dpg.add_inf_line_series(r["flip_t"], label="axis direction flipped", tag="fl_line", parent="ty1")
         lim = float(self.a.max_speed)
-        dpg.add_inf_line_series([lim, -lim], horizontal=True, label="limite", tag="lim_line", parent="ty4")
+        dpg.add_inf_line_series([lim, -lim], horizontal=True, label="speed limit", tag="lim_line", parent="ty4")
         dpg.set_axis_limits("ty4", -1.3 * lim, 1.3 * lim)
         up = "0" if self.eff_invert() else "100"      # where the positive signal points
         dpg.configure_item("s_v", label=f"velocity (+ = {up})")

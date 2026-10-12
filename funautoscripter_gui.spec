@@ -14,7 +14,7 @@ a = Analysis(
     ['funautoscripter_gui.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('src/gui/default_layout.ini', 'src/gui')],
     hiddenimports=[
         'dearpygui',
         'dearpygui.dearpygui',

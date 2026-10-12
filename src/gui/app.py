@@ -452,11 +452,19 @@ class App:
 
     def build_ui(self):
         dpg.create_context()
-        self.have_layout = os.path.exists(self.layout_path)
         try:
             os.makedirs(os.path.dirname(self.layout_path), exist_ok=True)
         except OSError:
             pass
+        if not os.path.exists(self.layout_path):
+            try:
+                import shutil
+                src = os.path.join(os.path.dirname(__file__), "default_layout.ini")
+                if os.path.exists(src):
+                    shutil.copy2(src, self.layout_path)
+            except OSError:
+                pass
+        self.have_layout = os.path.exists(self.layout_path)
         dpg.configure_app(docking=True, docking_space=True, docking_shift_only=False, init_file=self.layout_path)
         self.buf = np.zeros((CH, CW, 4), np.float32)
         self.buf[..., 3] = 1.0

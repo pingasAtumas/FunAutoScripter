@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build Linux binaries
+        run: |
+          pip install pyinstaller numpy scipy opencv-python matplotlib dearpygui
+          pyinstaller --onefile --name funautoscripter funautoscripter.py
+          pyinstaller --onefile --name funautoscripter-gui funautoscripter_gui.py
+
+      - name: Upload Linux CLI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: funautoscripter-linux
+          path: dist/funautoscripter
+
+      - name: Upload Linux GUI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: funautoscripter-gui-linux
+          path: dist/funautoscripter-gui
+
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build Windows binaries
+        run: |
+          pip install pyinstaller numpy scipy opencv-python matplotlib dearpygui
+          pyinstaller --onefile --name funautoscripter funautoscripter.py
+          pyinstaller --onefile --name funautoscripter-gui funautoscripter_gui.py
+
+      - name: Upload Windows CLI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: funautoscripter-windows
+          path: dist/funautoscripter.exe
+
+      - name: Upload Windows GUI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: funautoscripter-gui-windows
+          path: dist/funautoscripter-gui.exe
+
+  release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download Linux CLI binary
+        uses: actions/download-artifact@v4
+        with:
+          name: funautoscripter-linux
+          path: artifacts/linux
+
+      - name: Download Linux GUI binary
+        uses: actions/download-artifact@v4
+        with:
+          name: funautoscripter-gui-linux
+          path: artifacts/linux
+
+      - name: Download Windows CLI binary
+        uses: actions/download-artifact@v4
+        with:
+          name: funautoscripter-windows
+          path: artifacts/windows
+
+      - name: Download Windows GUI binary
+        uses: actions/download-artifact@v4
+        with:
+          name: funautoscripter-gui-windows
+          path: artifacts/windows
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/linux/funautoscripter
+            artifacts/linux/funautoscripter-gui
+            artifacts/windows/funautoscripter.exe
+            artifacts/windows/funautoscripter-gui.exe
+          generate_release_notes: true

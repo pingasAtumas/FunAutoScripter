@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install numpy scipy opencv-python matplotlib dearpygui
+
+      - name: Syntax check — CLI entry point
+        run: python -m py_compile funautoscripter.py
+
+      - name: Syntax check — GUI entry point
+        run: python -m py_compile funautoscripter_gui.py
+
+      - name: Syntax check — src modules
+        run: |
+          python -m py_compile src/__init__.py src/flow.py src/roi.py \
+            src/signal.py src/output.py src/debug.py src/chapters.py src/pipeline.py \
+            src/gui/__init__.py src/gui/app.py src/gui/config.py src/gui/utils.py \
+            src/gui/frame_source.py
+
+      - name: Import check
+        run: python -c "import funautoscripter; print('import OK')"

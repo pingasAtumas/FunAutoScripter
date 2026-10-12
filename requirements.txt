@@ -1,0 +1,8 @@
+# Runtime dependencies for the CLI (funautoscripter.py)
+numpy
+scipy
+opencv-python
+matplotlib
+
+# GUI only (funautoscripter_gui.py) — not needed for the CLI or Docker CLI image
+dearpygui

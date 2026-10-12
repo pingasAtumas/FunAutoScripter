@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  funautoscripter:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - ./videos:/videos
+      - ./output:/output
+    # Override the command to process a specific file.
+    # Example: docker compose run funautoscripter /videos/input.mp4 -o /output/output.funscript
+    command: ["/videos/input.mp4", "-o", "/output/output.funscript"]
+
+  # GUI service — requires VNC client to connect to localhost:5900
+  # The container starts an Xvfb display, fluxbox and x11vnc automatically.
+  # To use: docker compose up funautoscripter-gui
+  #         then connect with a VNC client to localhost:5900
+  funautoscripter-gui:
+    build:
+      context: .
+      dockerfile: Dockerfile.gui
+    ports:
+      - "5900:5900"
+    volumes:
+      - ./videos:/videos
+      - ./output:/output

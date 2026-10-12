@@ -1,0 +1,881 @@
+% FunAutoScripter User Guide
+% Compile with: pdflatex guide.tex  (twice for cross-references)
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2.8cm, right=2.8cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{parskip}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{titlesec}
+\usepackage{fancyhdr}
+\usepackage{mdframed}
+\usepackage[hidelinks, pdfauthor={FunAutoScripter}, pdftitle={FunAutoScripter User Guide}, pdfsubject={Automatic funscript generation from video}]{hyperref}
+
+% Colours
+\definecolor{codebg}{RGB}{245,245,245}
+\definecolor{keycolor}{RGB}{0,100,180}
+\definecolor{warnbg}{RGB}{255,248,220}
+\definecolor{warnborder}{RGB}{220,160,0}
+\definecolor{tipbg}{RGB}{235,248,235}
+\definecolor{tipborder}{RGB}{60,160,60}
+
+% Code listings
+\lstset{
+  backgroundcolor=\color{codebg},
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  breakatwhitespace=true,
+  frame=single,
+  framerule=0.4pt,
+  rulecolor=\color{gray!40},
+  xleftmargin=6pt,
+  xrightmargin=6pt,
+  aboveskip=8pt,
+  belowskip=6pt,
+  showstringspaces=false,
+  columns=fullflexible,
+  keepspaces=true,
+}
+
+% Inline code
+\newcommand{\code}[1]{\texttt{#1}}
+
+% Key/shortcut styling
+\newcommand{\key}[1]{\fbox{\small\texttt{#1}}}
+
+% Warning box
+\newmdenv[backgroundcolor=warnbg, linecolor=warnborder, linewidth=1.2pt, leftmargin=0pt, rightmargin=0pt, innerleftmargin=10pt, innerrightmargin=10pt, innertopmargin=8pt, innerbottommargin=8pt, skipabove=8pt, skipbelow=8pt]{warningbox}
+
+% Tip box
+\newmdenv[backgroundcolor=tipbg, linecolor=tipborder, linewidth=1.2pt, leftmargin=0pt, rightmargin=0pt, innerleftmargin=10pt, innerrightmargin=10pt, innertopmargin=8pt, innerbottommargin=8pt, skipabove=8pt, skipbelow=8pt]{tipbox}
+
+% Header / footer
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small\textit{FunAutoScripter User Guide}}
+\fancyhead[R]{\small\textit{\nouppercase{\leftmark}}}
+\fancyfoot[C]{\small\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% Section formatting
+\titleformat{\section}{\large\bfseries}{{\color{keycolor}\thesection}}{0.8em}{}[\vspace{-4pt}\rule{\linewidth}{0.5pt}]
+\titleformat{\subsection}{\normalsize\bfseries}{{\color{keycolor}\thesubsection}}{0.6em}{}
+
+% Screenshot placeholder macro
+\newcommand{\screenshot}[3]{%
+  \begin{figure}[h]
+    \centering
+    \fbox{\begin{minipage}{0.85\textwidth}
+      \centering\vspace{3cm}
+      \textit{[Screenshot: #1]}
+      \vspace{3cm}
+    \end{minipage}}
+    \caption{#2}
+    \label{fig:#3}
+  \end{figure}%
+}
+
+% -----------------------------------------------------------------------
+\begin{document}
+
+\begin{titlepage}
+  \centering
+  \vspace*{3cm}
+  {\Huge\bfseries FunAutoScripter}\\[0.6em]
+  {\large\itshape Automatic funscript generation from video}\\[2.5cm]
+  {\large User Guide}\\[0.4em]
+  {\normalsize\color{gray} GUI and command-line edition}\\[4cm]
+  \begin{tabular}{ll}
+    Engine  & Classical optical flow (OpenCV Farneback) \\
+    AI/GPU  & None required --- runs on any CPU \\
+    Output  & \code{.funscript} (JSON) \\
+  \end{tabular}
+  \vfill
+  {\small\color{gray} This guide covers both the graphical interface (\code{funautoscripter\_gui.py}) and the command-line tool (\code{funautoscripter.py}).}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+% -----------------------------------------------------------------------
+\section{Getting Started}
+\label{sec:start}
+
+FunAutoScripter watches a video and produces a \code{.funscript} file that drives a linear actuator device in synchrony with the motion in the video. It works by measuring how the pixels move between frames (optical flow) --- no AI, no downloaded models, no GPU required.
+
+\subsection{What you need}
+
+\begin{itemize}[noitemsep]
+  \item \textbf{ffmpeg} must be installed and available on the system \code{PATH}. It is used to decode the video.
+  \item \textbf{Python 3.9+} with the following packages: \code{numpy}, \code{scipy}, \code{opencv-python} (or \code{opencv}), and \code{matplotlib} (only needed for \code{--plot}). The GUI additionally requires \code{dearpygui}.
+  \item A video file in any format that ffmpeg can decode (mp4, mkv, avi, wmv, etc.).
+\end{itemize}
+
+No internet connection is needed at runtime. No models are downloaded. Everything runs locally.
+
+\subsection{Installation on NixOS}
+
+The project ships a \code{shell.nix} that provides all dependencies in an isolated environment:
+
+\begin{lstlisting}[language=bash]
+cd /path/to/FunAutoScripter
+nix-shell
+python funautoscripter_gui.py        # graphical interface
+# or
+python funautoscripter.py video.mp4  # command line
+\end{lstlisting}
+
+Never use \code{pip install} globally on NixOS --- use \code{nix-shell} every time.
+
+\subsection{Installation on Windows}
+
+Download the \code{.exe} release from the project's releases page. Double-click it. No Python or ffmpeg installation is needed --- everything is bundled inside.
+
+\begin{lstlisting}
+funautoscripter_gui.exe              # graphical interface
+funautoscripter.exe video.mp4       # command line
+\end{lstlisting}
+
+\subsection{Installation on Linux (binary)}
+
+Download the binary release, make it executable, and run it:
+
+\begin{lstlisting}[language=bash]
+chmod +x funautoscripter_gui
+./funautoscripter_gui
+\end{lstlisting}
+
+\screenshot{the GUI opening for the first time with no video loaded, showing the default empty state}{The GUI on first launch. No video is loaded yet.}{first-launch}
+
+% -----------------------------------------------------------------------
+\section{Opening a Video}
+\label{sec:open}
+
+\subsection{Single video}
+
+Use \textbf{File $\to$ Open video} (or press \key{Ctrl+O}) and select a video file. You can also \textbf{drag and drop} a video file onto the application window.
+
+After opening, the GUI reads the video's duration, frame rate and dimensions, and checks whether a flow cache already exists for this file. If a valid cache is found (matching the current analysis parameters), it is loaded automatically and the timeline is populated right away. If no cache exists, the ``Recalculate flow'' button turns orange to remind you that flow has not been computed yet.
+
+\subsection{Folder mode}
+
+Use \textbf{File $\to$ Open folder} (or press \key{Ctrl+Shift+O}) to open a directory. The ``Folder Videos'' panel lists every video file found in it. A \code{[ok]} tag next to a name means a \code{.funscript} already exists alongside that video.
+
+In folder mode you can click any video in the list to preview it individually, and check videos to include in a batch run (see Section~\ref{sec:batch}).
+
+\screenshot{the main window after opening a single video, showing the video frame, the timeline rows and the parameter panel on the right}{Main window after opening a video. The timeline at the bottom shows the five signal rows.}{main-window}
+
+% -----------------------------------------------------------------------
+\section{Computing Optical Flow}
+\label{sec:flow}
+
+Optical flow is the measurement step. For every pair of consecutive frames, the tool computes how far each small grid cell has moved horizontally and vertically. This is the only slow step; everything else (signal processing, keyframe extraction) completes in milliseconds.
+
+\subsection{Starting the computation}
+
+Click the \textbf{Recalculate flow} button at the top of the GUI, or press \key{R}. A progress bar and a frames-per-second counter appear while the computation runs.
+
+The button turns \textbf{orange} whenever a flow-affecting parameter has changed (analysis width, cell size, fps, crop, or zoom) and the current flow is therefore stale. While stale, the signals in the timeline continue to reflect the \emph{old} flow, so results are still usable --- but do recalculate before saving the final script.
+
+\begin{tipbox}
+\textbf{Tip:} Pressing \key{Esc} or clicking \textbf{Cancel} at any point stops the computation and kills the ffmpeg decoder. The partial result is discarded (the cache is only written when the run completes), so you lose the work for that video.
+\end{tipbox}
+
+\subsection{Caching}
+
+When flow computation finishes, the result is saved to a \code{.flowcache.npz} file next to the video:
+
+\begin{lstlisting}
+myvideo.mp4
+myvideo.funscript.flowcache.npz    <- cached flow
+myvideo.funscript                  <- output script
+\end{lstlisting}
+
+The next time you open the same video (with the same crop, zoom, width, cell size and fps settings), the cache is loaded instantly and no re-computation is needed. You only need to recalculate if any of those five parameters change.
+
+\subsection{Speed tips}
+
+For faster flow computation on long videos:
+
+\begin{itemize}[noitemsep]
+  \item Use \code{--fps 15} and \code{--width 128} for a rough first pass.
+  \item \code{--jobs N} splits the video into chunks and processes them in parallel (default: automatic, up to 6). With 2 cores, a typical speedup is roughly $1.7\times$.
+  \item \code{--hwaccel} lets ffmpeg use hardware video decoding (VAAPI, CUDA, etc.) and helps most on 4K or VR content where decoding is the bottleneck.
+  \item Run \textbf{Help $\to$ Test acceleration} (or \code{python funautoscripter.py --accel-test}) to see what hardware OpenCV and ffmpeg can find on your machine.
+\end{itemize}
+
+\screenshot{the GUI while optical flow is being computed, with a progress bar and fps counter visible below the Recalculate flow button}{Flow computation in progress. The progress bar and fps counter update in real time.}{flow-computing}
+
+% -----------------------------------------------------------------------
+\section{Understanding the Timeline}
+\label{sec:timeline}
+
+At the bottom of the window there are five linked timeline rows. They all share the same time axis; clicking or dragging the playhead in any row moves all of them together.
+
+\begin{center}
+\begin{tabular}{lp{10cm}}
+  \toprule
+  Row & What it shows \\
+  \midrule
+  \textbf{ROI} & Which region of the video is being tracked in each time window. Colour indicates the score of the chosen region. \\
+  \textbf{Velocity} & The projected speed of motion on the main axis (positive = towards position 100). Windows where the axis direction was automatically flipped are marked. \\
+  \textbf{Integral} & The accumulated position signal after bandpass filtering. A second axis on the right shows the raw integral (no bandpass); toggle it with ``show raw integral''. \\
+  \textbf{Script} & The final funscript position (0--100) with keyframes marked as dots. This is what gets saved. \\
+  \textbf{Script velocity} & The speed of the funscript position between consecutive keyframes, compared against the \code{--max-speed} limit. Segments that exceed the limit are clamped. \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+Above the five rows there is an \textbf{overview strip} showing the entire video at once: velocity colour (blue = slow, red = fast), the position envelope, chapter bands, and red tick marks where the direction inverts. Click anywhere in the strip to jump to that point; click a chapter band to activate that chapter.
+
+\begin{warningbox}
+\textbf{Note on axis scales:} The Velocity and Integral rows use \emph{range-fit} scaling --- the axis adjusts to whatever is visible in the current time window. Zooming in on a quiet segment will make small signals look large. Only the Script row is always 0--100.
+\end{warningbox}
+
+\screenshot{the timeline area with a loaded script showing all five rows and the overview strip above them}{The timeline. The overview strip at the top lets you navigate quickly; the five rows show each stage of the pipeline.}{timeline}
+
+% -----------------------------------------------------------------------
+\section{Region of Interest}
+\label{sec:roi}
+
+The ``region of interest'' (ROI) is the rectangular area of the video frame that the tool tracks. Only motion inside this region contributes to the funscript.
+
+\subsection{Automatic region selection}
+
+By default, the tool divides every time window (default: 3~s, controlled by \code{--roi-window}) into candidate regions and picks the one with the most relevant periodic motion. A \emph{hysteresis} threshold (\code{--switch}, default: 1.3) prevents it from switching to a marginally better region on every window.
+
+The ROI timeline row shows which region was active at each moment. The video overlay draws a cyan rectangle around the current region.
+
+\subsection{Manual region}
+
+If the automatic region is tracking the wrong object (a background element, a distractor), you can fix it manually:
+
+\begin{enumerate}[noitemsep]
+  \item Click \textbf{Region mode} in the video panel (or use the mode selector).
+  \item Draw a rectangle on the video by clicking and dragging. You can move it by dragging the inside, or resize it by dragging the edges.
+  \item Click \textbf{Apply selection} to lock the region.
+\end{enumerate}
+
+The locked region is shown as a rectangle with the label \code{--region x0:y0:x1:y1} where the coordinates are fractions of the frame (0 to 1). Click \textbf{Clear} to return to automatic selection.
+
+\begin{tipbox}
+\textbf{Tip:} Run with \code{--plot debug.png} from the command line. The generated \code{debug.roi.png} shows a heat map of average motion intensity across the whole video, with the used regions highlighted in cyan. This is the fastest way to identify where the action is and choose a good manual region.
+\end{tipbox}
+
+\screenshot{the video panel with a manually drawn region rectangle highlighted in cyan on the frame, and the Apply selection button visible}{Drawing a manual region. Drag on the video to create the rectangle, then click Apply selection to lock it.}{roi-rectangle}
+
+% -----------------------------------------------------------------------
+\section{Parameters}
+\label{sec:params}
+
+The parameters panel on the right side of the GUI contains all the settings that control the signal processing pipeline. Most parameters take effect instantly (the signal recalculates in milliseconds); a few that affect flow computation require clicking ``Recalculate flow'' (these are marked in the panel).
+
+Parameters that differ from the currently active preset are highlighted in \textbf{orange} with an asterisk (\code{*}). The ``Reset to preset'' button restores them. Hovering over any parameter shows a tooltip explaining what it does.
+
+\subsection{Enhancement}
+
+These sliders shape the final signal \emph{after} normalisation but \emph{before} the keyframes are extracted. At their default values the output is byte-for-byte identical to running without them.
+
+\begin{description}[leftmargin=3cm, style=nextline]
+  \item[\code{--smooth}] Smooth the signal before scaling (seconds, default: 0 = off). Reduces jitter; use 0.1--0.3~s for a cleaner result.
+  \item[\code{--boost}] Open light strokes without touching the extremes (exponent, default: 1 = off). Above 1, small movements near the centre are amplified more than large ones. Useful when strokes are consistently shallow.
+  \item[\code{--gain}] Amplitude around the centre (default: 1 = no change). Above 1, the signal is stretched away from 50, making strokes longer.
+  \item[\code{--offset}] Shift the centre position in 0--100 units (default: 0). Use a positive value to bias the rest position towards 100, or negative to bias towards 0.
+\end{description}
+
+\subsection{Treble Enhancement}
+
+For content where small fast strokes are hidden inside a larger slow oscillation. All parameters default to 0 (off).
+
+\begin{description}[leftmargin=3cm, style=nextline]
+  \item[\code{--hp2}] High-pass cutoff in Hz applied to the already-scaled funscript (0 = off). Removes the slow oscillation and keeps only the fast strokes.
+  \item[\code{--hfboost}] Boost the amplitude of frequencies above \code{--hf-freq} (default: 0 = off). 1 doubles the fast strokes relative to slow ones.
+  \item[\code{--hf-freq}] Frequency in Hz where \code{--hfboost} begins (default: 1.5~Hz).
+  \item[\code{--renorm}] Re-normalise the funscript with a short rolling window to bring up quiet sections (seconds, 0 = off, minimum 0.5~s). Combine with \code{--hp2} for best results.
+  \item[\code{--renorm-floor}] Minimum window range for re-normalisation (default: 0.15). Lower values amplify quiet sections more aggressively; raise this if false strokes appear in pauses.
+\end{description}
+
+\begin{warningbox}
+\textbf{Warning:} Treble enhancement also amplifies noise in pauses. If you see phantom strokes appearing in quiet sections after enabling these, raise \code{--renorm-floor} or increase \code{--min-amp}.
+\end{warningbox}
+
+\subsection{Region}
+
+Controls how the automatic region is selected within each time window.
+
+\begin{description}[leftmargin=3.5cm, style=nextline]
+  \item[\code{--roi}] Automatic region size as a fraction of the frame (default: 0.4). This is the area of the region; the shape follows \code{--roi-aspect}.
+  \item[\code{--roi-aspect}] Width/height ratio of the automatic region (default: 0 = inherit the video's ratio). Use 1 for a square region, 0.5 for a tall region.
+  \item[\code{--roi-window}] Seconds between region updates (default: 3.0). Longer windows make the region more stable; shorter windows let it follow fast-changing action.
+  \item[\code{--switch}] The new region must score this many times better than the current one to trigger a switch (default: 1.3). Raise to reduce jumping; lower to follow changes more aggressively.
+  \item[\code{--period-weight}] 0 = choose region by motion magnitude only; 1 = choose by periodicity only (default: 0.5). Increasing this makes the selector prefer regions that oscillate rhythmically.
+  \item[\code{--noise}] Flow noise floor in pixels per frame (default: 0.05). Raise slightly (e.g. 0.01) for high-quality, low-noise video; lower this has limited effect.
+\end{description}
+
+\subsection{Signal}
+
+Controls the bandpass filter and normalisation applied to the position signal.
+
+\begin{description}[leftmargin=3.5cm, style=nextline]
+  \item[\code{--highpass}] Remove drift below this frequency in Hz (default: 0.15~Hz). Raise to remove slow oscillations from the script.
+  \item[\code{--lowpass}] Remove jitter above this frequency in Hz (default: 5.0~Hz). Lower to smooth a noisy signal; be careful not to cut real fast strokes.
+  \item[\code{--norm-window}] Rolling window for 0--100 normalisation (seconds, default: 10.0). Longer windows smooth amplitude changes across scenes; shorter windows follow local amplitude more quickly.
+  \item[\code{--floor}] Minimum local range as a fraction of the typical range (default: 0.35). Prevents noise being amplified during pauses. Lower values amplify quiet sections more.
+  \item[\code{--axis}] Axis mode: \code{auto} (follow the main motion direction via PCA) or \code{y} (always vertical). Use \code{y} if the motion is purely vertical and the automatic axis keeps rotating.
+  \item[\code{--axis-ref}] Which end of the axis is position 100 (default: \code{chapter}). See Section~\ref{sec:chapters} for details. Options: \code{chapter}, \code{down}, \code{up}, \code{left}, \code{right}, \code{auto}, or a number in degrees.
+\end{description}
+
+\subsection{Keyframes}
+
+Controls which peaks and valleys become keyframes in the output script.
+
+\begin{description}[leftmargin=3.5cm, style=nextline]
+  \item[\code{--min-amp}] Smallest stroke to include, in 0--100 units (default: 12.0). Raise to eliminate small wiggles from the script; lower to keep fine detail.
+  \item[\code{--min-interval}] Minimum time between consecutive keyframes in seconds (default: 0.12~s). Prevents two keyframes from being too close together; raise for slower, smoother scripts.
+  \item[\code{--max-speed}] Maximum allowed speed in position units per second (default: 450.0). The tool inserts extra keyframes or adjusts timing to keep each segment within this limit. A typical linear actuator's limit is 300--500 u/s.
+\end{description}
+
+\subsection{Auto Chapters}
+
+Controls the automatic scene/chapter detection. See Section~\ref{sec:chapters} for a full explanation of chapters.
+
+\begin{description}[leftmargin=3.5cm, style=nextline]
+  \item[\code{--chap-sens}] Overall chapter detection sensitivity, 0 to 1 (default: 0.5). Values above 0.5 lower all thresholds (more chapters); values below 0.5 raise them.
+  \item[\code{--chap-persist}] A change must last this many seconds to count as a new chapter (default: 8.0~s). Raise to avoid false splits during temporary distractors.
+  \item[\code{--chap-min}] Minimum chapter length in seconds (default: 10.0). Shorter chapters are merged with a neighbour.
+  \item[\code{--chap-by}] Which signals to use for detection (default: \code{cuts,angle,zone,soft}). Remove a name to disable that detector.
+\end{description}
+
+\subsection{Processing Speed}
+
+\begin{description}[leftmargin=3.5cm, style=nextline]
+  \item[\code{--jobs}] Parallel flow computation chunks (default: 0 = automatic). Each chunk is at least 20~s. Increase for faster computation on multi-core machines.
+  \item[\code{--hwaccel}] Enable hardware-accelerated video decoding via ffmpeg (e.g. VAAPI on Intel/AMD, CUDA on NVIDIA). Mainly useful for 4K or VR where decoding is the bottleneck.
+\end{description}
+
+\screenshot{the Parameters panel on the right side of the GUI, showing the Enhancement, Region, Signal, Keyframes and Auto Chapters groups with sliders}{The Parameters panel. Parameters that differ from the active preset are highlighted in orange.}{params-panel}
+
+% -----------------------------------------------------------------------
+\section{Presets}
+\label{sec:presets}
+
+Presets save a named set of parameter values (everything except flow-affecting settings and the invert flag). Several built-in presets are provided:
+
+\begin{center}
+\begin{tabular}{lp{9.5cm}}
+  \toprule
+  Preset & Character \\
+  \midrule
+  \textbf{Default}   & Neutral starting point. \\
+  \textbf{Light}     & Smooth signal, fewer strokes, smaller amplitude and lower speed. Good for gentle content. \\
+  \textbf{Heavy}     & Full stroke, lighter strokes opened, more speed. For intense content. \\
+  \textbf{Precise}   & Stable region, low noise threshold, fine detail. For well-lit, clean video. \\
+  \textbf{Enhanced}  & High-frequency boost and re-normalisation. For mixed slow and fast strokes. \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+To save your own preset: type a name in the preset name field and click \textbf{Save}. To delete a custom preset: select it and click \textbf{Delete}. Built-in presets cannot be deleted.
+
+% -----------------------------------------------------------------------
+\section{Chapters}
+\label{sec:chapters}
+
+Chapters divide a video into independent segments, each with its own optical flow analysis, region, and direction settings. They are most useful when:
+
+\begin{itemize}[noitemsep]
+  \item The camera angle or zoom changes between scenes and you want a different analysis zoom per segment.
+  \item The main motion switches from vertical to horizontal and the direction needs resetting.
+  \item There are hard cuts between scenes with very different motion patterns.
+\end{itemize}
+
+Each chapter is analysed completely independently: normalisation restarts from scratch, so amplitude is not comparable across chapters. Chapter boundaries always produce a keyframe on each side, with the speed limit enforced at the join.
+
+\subsection{Automatic detection}
+
+Click \textbf{Suggest chapters} (or press \key{G}) to run automatic chapter detection. The tool analyses the optical flow for four types of changes:
+
+\begin{itemize}[noitemsep]
+  \item \textbf{Hard cuts}: sudden spike in frame difference (controlled by \code{--cut-ratio} and \code{--cut-min}).
+  \item \textbf{Soft transitions}: fades or dissolves where the motion map changes gradually (controlled by \code{--chap-soft}).
+  \item \textbf{Axis change}: the dominant motion direction rotates by more than \code{--chap-angle} (default: 35°).
+  \item \textbf{Zone change}: the main motion zone shifts by more than \code{--chap-shift} (default: 0.30 of the frame).
+\end{itemize}
+
+A change only becomes a chapter boundary if it persists for at least \code{--chap-persist} seconds (default: 8~s) and the resulting chapter would be longer than \code{--chap-min} (default: 10~s).
+
+When you open a video that has no \code{.chapters.json} file saved alongside it, the GUI automatically suggests chapters using the current settings.
+
+\subsection{Manual chapters}
+
+To add a chapter at the current playhead position, press \key{N} or click \textbf{New chapter at cursor}. Each side of the split must be at least 1~s long. The new chapter inherits the zoom and region of the chapter it was split from.
+
+\subsection{Zoom per chapter}
+
+When a chapter needs a tighter view (see Section~\ref{sec:zoom}):
+
+\begin{enumerate}[noitemsep]
+  \item Navigate the playhead into the chapter you want to adjust.
+  \item Switch to \textbf{Zoom mode} in the video panel and draw a rectangle.
+  \item Click \textbf{Apply selection}. Only this chapter's flow is recalculated with the new zoom; other chapters keep their existing flow.
+\end{enumerate}
+
+\subsection{Direction per chapter}
+
+The tool automatically determines which end of the motion axis is position~100 (the \emph{axis reference}). If the result is inverted for a chapter, toggle the \textbf{``invert this chapter''} checkbox, or press \key{I} when the playhead is inside that chapter. The global \textbf{Invert} setting XOR-combines with the per-chapter flag.
+
+The \textbf{Chapter direction} section in the GUI lets you override the axis reference precisely: drag the arrow on the video, select a direction from the dropdown, or type an angle in degrees (0° = right, 90° = down), then click \textbf{Apply direction}.
+
+A compass in the corner of the video shows the current chapter's active axis reference direction.
+
+\subsection{Saving chapters}
+
+Chapter configuration (zoom, region, axis reference, invert flag for each chapter) is saved to \code{<video>.chapters.json} when you click \textbf{Save funscript}. It is restored automatically the next time you open the same video, so you do not have to redo the chapter work.
+
+\screenshot{the chapter list showing several chapters with different colours, each with its start time, duration and zoom/region settings visible}{Chapter list with multiple chapters. Each chapter can have its own zoom, region and direction.}{chapter-list}
+
+% -----------------------------------------------------------------------
+\section{Subtle Motion and Zoom}
+\label{sec:zoom}
+
+The flow analysis runs at 192~px width. In a 1280~px wide video, a 1~px real-world movement becomes only 0.15~px in the analysis, close to Farneback's noise floor. If the motion in the video is subtle (small oscillations, high compression artefacts, low contrast), the script quality degrades.
+
+\textbf{Zoom} solves this by cropping a smaller zone in the original video \emph{before} downscaling, so the full 192~px analysis budget covers only that zone.
+
+\subsection{Setting zoom in the GUI}
+
+\begin{enumerate}[noitemsep]
+  \item Switch to \textbf{Zoom mode} in the video panel.
+  \item Draw a rectangle around the area where the motion occurs. The video preview updates immediately to show the cropped zone.
+  \item Click \textbf{Apply selection}. The flow is recalculated for this chapter with the new zoom.
+\end{enumerate}
+
+\textbf{Clear} removes the zoom and returns to the full frame.
+
+\subsection{Setting zoom on the command line}
+
+\begin{lstlisting}[language=bash]
+python funautoscripter.py video.mp4 --zoom 0.2:0.1:0.8:0.9
+\end{lstlisting}
+
+Coordinates are fractions of the frame (after any \code{--crop}/\code{--sbs}/\code{--tb}): \code{X0:Y0:X1:Y1}. Use \code{--plot debug.png} first: the \code{debug.roi.png} output shows a heat map of average motion, which makes it easy to identify where to zoom.
+
+\begin{tipbox}
+\textbf{Rule of thumb:} Zoom is most effective when the motion zone covers less than 30\% of the frame width. At 3--4$\times$ zoom, 1~px of real motion becomes 3--4$\times$ more visible in the analysis. Increasing \code{--width} to 384 or 768 costs 4--16$\times$ more computation time for a similar or smaller benefit.
+\end{tipbox}
+
+% -----------------------------------------------------------------------
+\section{3D/VR Video}
+\label{sec:vr}
+
+Side-by-side and top-bottom stereoscopic videos contain two copies of the image. Analysing the full frame produces a blended result from both eyes; use the crop shortcuts to restrict analysis to one half.
+
+\subsection{Side-by-side (SBS)}
+
+\begin{lstlisting}[language=bash]
+python funautoscripter.py video.mp4 --sbs              # left half (default)
+python funautoscripter.py video.mp4 --sbs --eye right  # right half
+\end{lstlisting}
+
+In the GUI, set the \textbf{Crop} parameter to \texttt{SBS left} or \texttt{SBS right}. The video preview updates immediately to show only the selected half.
+
+\subsection{Top-bottom (TB)}
+
+\begin{lstlisting}[language=bash]
+python funautoscripter.py video.mp4 --tb               # top half (default)
+python funautoscripter.py video.mp4 --tb --eye right   # bottom half
+\end{lstlisting}
+
+In the GUI, use \texttt{TB top} or \texttt{TB bottom} in the Crop parameter.
+
+\textbf{After changing crop}, the flow must be recalculated --- the button turns orange. Crop is part of the cache key, so the old cache is not reused.
+
+\begin{warningbox}
+\textbf{Note:} VR180 fisheye distortion is \emph{not} corrected. The analysis sees the fisheye projection, which may affect region selection near the edges. For centre-weighted content this is usually acceptable.
+\end{warningbox}
+
+\screenshot{a side-by-side VR video with only the left half being analysed, shown by the crop preview and the region rectangle confined to the left side}{SBS mode with left-eye crop applied. Only the highlighted half is analysed.}{sbs-crop}
+
+% -----------------------------------------------------------------------
+\section{Saving the Script}
+\label{sec:save}
+
+When you are happy with the result shown in the Script timeline row, click \textbf{Save funscript} (or press \key{Ctrl+S}).
+
+The output file is placed next to the video with the same base name:
+
+\begin{lstlisting}
+myvideo.mp4
+myvideo.funscript     <- output
+\end{lstlisting}
+
+Use \code{-o output.funscript} on the command line to write to a different path.
+
+When chapters are active, the keyframes from all chapters are merged in time before writing. The speed limit (\code{--max-speed}) is enforced across chapter joins as well, so there are no abrupt jumps at the boundaries.
+
+\begin{tipbox}
+\textbf{Tip:} Generate a plot to inspect quality before saving: run with \code{--plot debug.png} (CLI) or use the plot button in the GUI. The plot shows three graphs --- velocity, filtered position, and the final funscript with keyframes --- with scene cuts as red dashed lines.
+\end{tipbox}
+
+\screenshot{the status bar at the bottom of the GUI showing a success message after saving, with the output file path visible}{Status bar confirmation after saving the funscript.}{saved-status}
+
+% -----------------------------------------------------------------------
+\section{Batch Processing (Folder Mode)}
+\label{sec:batch}
+
+Folder mode lets you generate scripts for many videos at once using the same parameter settings.
+
+\subsection{Opening a folder}
+
+Use \textbf{File $\to$ Open folder} (\key{Ctrl+Shift+O}). The \textbf{Folder Videos} panel lists all videos found. Videos marked \code{[ok]} already have a \code{.funscript} and will be skipped unless you check \textbf{redo}.
+
+\subsection{Selecting videos for batch}
+
+Check the box next to each video you want to process, or use the bulk selection buttons:
+
+\begin{itemize}[noitemsep]
+  \item \textbf{All} --- select every video.
+  \item \textbf{None} --- deselect all.
+  \item \textbf{No script} --- select only videos that do not yet have a \code{.funscript}.
+\end{itemize}
+
+\subsection{Running the batch}
+
+Click \textbf{Process selected}. The GUI processes each video in queue, showing a per-video progress bar. Videos that fail (decode error, no motion detected) are reported in the summary at the end --- they do not stop the rest of the batch.
+
+The batch uses the currently open video's flow cache when available. Each video's cache is written independently as it finishes, so an interrupted batch can be resumed without losing completed videos.
+
+\begin{tipbox}
+\textbf{Apply settings without recomputing flow:} If you already have flow caches for all videos and only want to change signal parameters (gain, smooth, min-amp, etc.), click \textbf{Apply settings (cache only)} instead. This regenerates scripts from existing caches in seconds. Videos without a valid cache are skipped and listed in the summary.
+\end{tipbox}
+
+\subsection{Applying zoom or region to all videos}
+
+By default, batch processing does not apply the current video's zoom or region to other videos. Enable \textbf{``apply current zoom and region to all''} in the batch panel if you want every video to use the same crop.
+
+\subsection{Parallel batch}
+
+The \code{--folder-jobs N} parameter (``parallel videos in batch'' in the GUI) processes $N$ videos simultaneously. The available CPU cores are divided among them. This is most useful for many short videos; for a few long videos the default sequential mode is equally fast.
+
+\screenshot{the folder mode interface with a list of videos and progress bars showing batch processing in progress}{Batch processing in folder mode. Each row shows the video name and its individual progress.}{batch-progress}
+
+% -----------------------------------------------------------------------
+\section{Command-Line Usage}
+\label{sec:cli}
+
+The command-line tool (\code{funautoscripter.py} or the \code{funautoscripter} binary) accepts all the same parameters as the GUI, plus a few that are only useful non-interactively.
+
+\subsection{Common examples}
+
+\begin{lstlisting}[language=bash]
+# Generate a script for a single video
+python funautoscripter.py video.mp4
+
+# Generate and also produce debug plots
+python funautoscripter.py video.mp4 --plot debug.png
+
+# Fix the region manually (fractions of frame: x0:y0:x1:y1)
+python funautoscripter.py video.mp4 --region 0.3:0.1:0.7:0.9
+
+# Increase speed for long videos (lower quality)
+python funautoscripter.py video.mp4 --fps 15 --width 128
+
+# Process all videos in a folder, skip those with existing scripts
+python funautoscripter.py myfolder/
+
+# Process all videos recursively, overwrite existing scripts
+python funautoscripter.py myfolder/ --recursive --overwrite
+
+# Side-by-side VR (left eye)
+python funautoscripter.py vr.mp4 --sbs
+
+# Top-bottom VR (bottom/right eye)
+python funautoscripter.py vr.mp4 --tb --eye right
+
+# Zoom into a region for subtle motion
+python funautoscripter.py video.mp4 --zoom 0.2:0.1:0.7:0.9
+
+# Deep debug output (6 annotated videos plus CSV/JSON)
+python funautoscripter.py video.mp4 --debug dbg/
+
+# Test hardware acceleration options
+python funautoscripter.py --accel-test
+\end{lstlisting}
+
+\subsection{Quick-reference parameter table}
+
+\begin{center}
+\begin{tabular}{llp{6.5cm}}
+  \toprule
+  Parameter & Default & Description \\
+  \midrule
+  \code{--fps}           & 30          & Analysis frame rate \\
+  \code{--width}         & 192         & Analysis width in pixels \\
+  \code{--cell}          & 12          & Grid cell size in pixels \\
+  \code{--crop}          & ---         & Crop before analysis: \code{left}, \code{right}, \code{top}, \code{bottom}, or \code{W:H:X:Y} \\
+  \code{--sbs}           & off         & Side-by-side VR shortcut \\
+  \code{--tb}            & off         & Top-bottom VR shortcut \\
+  \code{--eye}           & left        & Which half to use with \code{--sbs}/\code{--tb} \\
+  \code{--zoom}          & ---         & Zoom zone as fractions \code{X0:Y0:X1:Y1} \\
+  \code{--region}        & auto        & Fixed region as fractions \code{X0:Y0:X1:Y1} \\
+  \code{--roi}           & 0.4         & Auto region size (fraction of frame) \\
+  \code{--roi-window}    & 3.0 s       & Seconds between region updates \\
+  \code{--switch}        & 1.3         & Score multiplier to trigger a region switch \\
+  \code{--axis}          & auto        & Motion axis: \code{auto} or \code{y} \\
+  \code{--axis-ref}      & chapter     & Which end is position 100 \\
+  \code{--highpass}      & 0.15 Hz     & Remove drift below this frequency \\
+  \code{--lowpass}       & 5.0 Hz      & Remove jitter above this frequency \\
+  \code{--norm-window}   & 10.0 s      & Normalisation rolling window \\
+  \code{--floor}         & 0.35        & Minimum local range to prevent amplifying pauses \\
+  \code{--smooth}        & 0 s         & Pre-scaling smoothing (0 = off) \\
+  \code{--boost}         & 1.0         & Expand light strokes (1 = off) \\
+  \code{--gain}          & 1.0         & Amplitude around centre (1 = off) \\
+  \code{--offset}        & 0.0         & Centre position shift \\
+  \code{--hp2}           & 0.0 Hz      & High-pass the scaled script (0 = off) \\
+  \code{--hfboost}       & 0.0         & High-frequency amplitude boost (0 = off) \\
+  \code{--hf-freq}       & 1.5 Hz      & Start of \code{--hfboost} range \\
+  \code{--renorm}        & 0.0 s       & Re-normalisation window (0 = off) \\
+  \code{--renorm-floor}  & 0.15        & Re-normalisation floor \\
+  \code{--min-amp}       & 12.0        & Minimum stroke amplitude (0--100 units) \\
+  \code{--min-interval}  & 0.12 s      & Minimum time between keyframes \\
+  \code{--max-speed}     & 450.0 u/s   & Maximum position speed \\
+  \code{--invert}        & off         & Flip position 0 and 100 \\
+  \code{--chapters}      & auto        & Chapter mode: \code{auto}, \code{detect}, \code{none}, file or text \\
+  \code{--chap-sens}     & 0.5         & Chapter detection sensitivity (0--1) \\
+  \code{--chap-persist}  & 8.0 s       & Change must persist to count \\
+  \code{--chap-min}      & 10.0 s      & Minimum chapter length \\
+  \code{--jobs}          & 0 (auto)    & Parallel flow chunks \\
+  \code{--hwaccel}       & off         & ffmpeg hardware video decode \\
+  \code{--opencl}        & off         & OpenCL (GPU) flow computation \\
+  \code{--plot}          & ---         & Save debug plots to PNG \\
+  \code{--debug}         & ---         & Save deep debug videos to a directory \\
+  \code{--start}         & 0.0 s       & Start time \\
+  \code{--duration}      & 0 (all)     & Seconds to process \\
+  \code{--overwrite}     & off         & Overwrite existing scripts in folder mode \\
+  \code{--recursive}     & off         & Search subfolders in folder mode \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+% -----------------------------------------------------------------------
+\section{Troubleshooting}
+\label{sec:trouble}
+
+\subsection{``No flow computed'' / blank timeline}
+
+The flow has not been computed yet, or the cached flow does not match the current parameters (width, cell, fps, crop, zoom).
+
+\textbf{Fix:} Click \textbf{Recalculate flow}. If the button is orange, the parameters changed and the cached flow is stale.
+
+\subsection{The script is inverted (up is down)}
+
+The tool guessed the wrong direction for the motion axis.
+
+\textbf{Fix:} Press \key{I} to toggle the invert flag for the current chapter. In the GUI, the \textbf{``invert this chapter''} checkbox (in the chapter panel) does the same. If the whole video is inverted, use the global \textbf{Invert} toggle instead.
+
+\subsection{Too many strokes / the script is very busy}
+
+\textbf{Fix (try in order):}
+\begin{enumerate}[noitemsep]
+  \item Raise \code{--min-amp} (e.g. from 12 to 20--30) to filter out smaller movements.
+  \item Raise \code{--min-interval} (e.g. from 0.12 to 0.20~s) to enforce a minimum gap between keyframes.
+  \item Raise \code{--smooth} (e.g. 0.1--0.2~s) to soften the signal before keyframe extraction.
+  \item Lower \code{--lowpass} (e.g. from 5.0 to 3.0~Hz) to remove higher-frequency oscillations.
+\end{enumerate}
+
+\subsection{Strokes are missing or too shallow}
+
+\textbf{Fix (try in order):}
+\begin{enumerate}[noitemsep]
+  \item Lower \code{--min-amp} to include smaller peaks.
+  \item Raise \code{--lowpass} (e.g. from 5.0 to 8.0~Hz) to allow faster strokes through.
+  \item If there are fast strokes hidden inside a slow oscillation, try the Treble Enhancement parameters (\code{--hp2}, \code{--renorm}).
+  \item Use \code{--zoom} to magnify the motion zone (see Section~\ref{sec:zoom}).
+\end{enumerate}
+
+\subsection{The script tracks the wrong object}
+
+The automatic region locked onto a background element or a distractor instead of the main subject.
+
+\textbf{Fix:} Draw a manual region in the video panel (Section~\ref{sec:roi}). Run with \code{--plot debug.png} first to see where the motion is concentrated (\code{debug.roi.png}).
+
+\subsection{Chapter splits in the wrong place}
+
+\textbf{Fix:}
+\begin{itemize}[noitemsep]
+  \item Too many chapters: raise \code{--chap-sens} below 0.5, or raise \code{--chap-persist}.
+  \item Too few chapters: raise \code{--chap-sens} above 0.5, or lower \code{--chap-persist}.
+  \item Unwanted split at a brief distractor: raise \code{--chap-persist} so transient changes do not count.
+  \item Wrong split type: use \code{--chap-by} to enable only the detectors that are relevant (e.g. \code{--chap-by cuts} for only hard-cut detection).
+\end{itemize}
+
+\subsection{Computation is slow}
+
+\textbf{Fix:}
+\begin{itemize}[noitemsep]
+  \item Use \code{--fps 15} (from 30) and \code{--width 128} (from 192) for a coarser but faster analysis.
+  \item Increase \code{--jobs} (or leave at 0 for automatic) to use all available CPU cores.
+  \item Enable \code{--hwaccel} to offload video decoding to the GPU (particularly helpful for 4K or VR).
+  \item Run \code{--accel-test} to check what hardware is available.
+\end{itemize}
+
+\subsection{The funscript file is not recognised by the player}
+
+\begin{itemize}[noitemsep]
+  \item The output file must have the \emph{exact same base name} as the video, with only the extension changed to \code{.funscript}.
+  \item Confirm the funscript is valid JSON: open it in a text editor and check that it starts with \code{\{} and ends with \code{\}}.
+  \item Some players require the script to be in the same folder as the video.
+\end{itemize}
+
+% -----------------------------------------------------------------------
+\appendix
+\renewcommand{\thesection}{Appendix \Alph{section}}
+\section{All Parameters Reference}
+\label{app:params}
+
+The table below lists every parameter accepted by \code{funautoscripter.py}. Parameters that affect optical flow computation (and therefore require \textbf{Recalculate flow} in the GUI) are marked with $\dagger$.
+
+\begingroup
+\small
+\begin{longtable}{p{3.2cm} p{2.2cm} p{1.5cm} p{7.5cm}}
+  \toprule
+  Parameter & Default & Range & Description \\
+  \midrule
+  \endfirsthead
+  \toprule
+  Parameter & Default & Range & Description \\
+  \midrule
+  \endhead
+  \midrule
+  \multicolumn{4}{r}{\textit{Continued on next page}} \\
+  \endfoot
+  \bottomrule
+  \endlastfoot
+
+  % Input group
+  \multicolumn{4}{l}{\textit{Input}} \\
+  \code{--start}         & 0.0 s     & $\ge 0$    & Start time in seconds. \\
+  \code{--duration}      & 0 (all)   & $\ge 0$    & Seconds to process; 0 processes to the end. \\
+  \code{--crop}$\dagger$ & ---       & ---        & Crop the frame before analysis: \code{left}, \code{right}, \code{top}, \code{bottom}, or \code{W:H:X:Y} in source pixels. \\
+  \code{--sbs}$\dagger$  & off       & flag       & Side-by-side 3D/VR: analyse one horizontal half (default: left). Shortcut for \code{--crop left/right}. \\
+  \code{--tb}$\dagger$   & off       & flag       & Top-bottom 3D/VR: analyse one vertical half (default: top). Shortcut for \code{--crop top/bottom}. \\
+  \code{--eye}$\dagger$  & left      & left/right & Which half to use with \code{--sbs} or \code{--tb}. \\
+  \code{--zoom}$\dagger$ & ---       & 0--1       & Analysis zone as fractions \code{X0:Y0:X1:Y1} of the (cropped) frame. Magnifies subtle motion. \\
+  \code{--fps}$\dagger$  & 30        & 1--60      & Analysis frame rate in frames per second. \\
+  \code{--width}$\dagger$& 192       & 64--1280   & Analysis width in pixels; height is proportional. \\
+  \code{--cell}$\dagger$ & 12        & 4--64      & Grid cell size in pixels; the region grid is \code{width/cell} $\times$ \code{height/cell}. \\
+  \code{--chapters}      & auto      & ---        & Chapter mode: \code{auto} (use existing .json or detect), \code{detect} (always detect), \code{none}, a .json file path, or inline text \code{T@ZOOM[@REGION[@i[@ANGLE]]];...} \\
+  \code{--no-cache}      & off       & flag       & Ignore the flow cache and always recompute. \\
+  \code{--jobs}          & 0         & 0--16      & Parallel flow chunks (0 = automatic, up to 6). \\
+  \code{--hwaccel}       & off       & string     & ffmpeg hardware decode method (\code{auto}, \code{cuda}, \code{vaapi}, etc.). \\
+  \code{--opencl}        & off       & flag       & Use OpenCL (GPU) for Farneback computation. \\
+
+  % Chapter detection
+  \multicolumn{4}{l}{\textit{Automatic chapter detection}} \\
+  \code{--chap-by}       & cuts,angle,zone,soft & --- & Which change types trigger a new chapter. \\
+  \code{--chap-sens}     & 0.5       & 0--1       & Overall sensitivity; 0.5 = default thresholds, 1.0 = most sensitive. \\
+  \code{--chap-soft}     & 0.5       & 0--1       & Soft transition sensitivity (added to \code{--chap-sens}). \\
+  \code{--chap-soft-span}& 2.0 s     & $>0$       & Seconds on each side of a potential soft transition to compare. \\
+  \code{--chap-angle}    & 35°       & 1--90      & Motion axis change (degrees) that counts as a new chapter. \\
+  \code{--chap-shift}    & 0.30      & 0--1       & Motion zone shift (fraction of frame) that counts as a new chapter. \\
+  \code{--chap-persist}  & 8.0 s     & $>0$       & Change must persist this long to count as a chapter boundary. \\
+  \code{--chap-min}      & 10.0 s    & $>0$       & Shorter chapters are merged with a neighbour. \\
+  \code{--chap-win}      & 1.0 s     & $>0$       & Analysis window for chapter detection. \\
+  \code{--cut-ratio}     & 4.0       & $>1$       & A spike above this multiple of the local median counts as a hard cut. \\
+  \code{--cut-min}       & 0.5 px    & $>0$       & Minimum mean motion (px/frame) for a spike to count as a cut. \\
+
+  % Region and motion
+  \multicolumn{4}{l}{\textit{Region and motion}} \\
+  \code{--region}        & auto      & 0--1       & Fixed analysis region: \code{X0:Y0:X1:Y1} as frame fractions. \\
+  \code{--roi}           & 0.4       & 0.05--1    & Automatic region size as a fraction of the frame area. \\
+  \code{--roi-aspect}    & 0         & 0--10      & Auto region width/height ratio (0 = inherit video ratio). \\
+  \code{--roi-window}    & 3.0 s     & $>0$       & Seconds between automatic region updates. \\
+  \code{--switch}        & 1.3       & $\ge 1$    & New region must score this many times better to replace the current one. \\
+  \code{--period-weight} & 0.5       & 0--1       & 0 = rank by magnitude, 1 = rank by periodicity. \\
+  \code{--candidates}    & 6         & 1--20      & Number of candidate regions evaluated per window. \\
+  \code{--axis}          & auto      & auto/y     & Motion axis: \code{auto} (PCA) or \code{y} (always vertical). \\
+  \code{--axis-ref}      & chapter   & ---        & Which end of the axis is position 100: \code{chapter}, \code{down}, \code{up}, \code{left}, \code{right}, \code{auto}, or degrees. \\
+  \code{--axis-margin}   & 0.35      & 0--1       & Cosine threshold below which the axis is considered ambiguous and follows continuity. \\
+  \code{--noise}         & 0.05 px   & $\ge 0$    & Flow noise floor in pixels per frame. \\
+
+  % Signal
+  \multicolumn{4}{l}{\textit{Signal processing}} \\
+  \code{--highpass}      & 0.15 Hz   & 0--5       & High-pass cutoff: removes drift below this frequency. \\
+  \code{--lowpass}       & 5.0 Hz    & 0.5--30    & Low-pass cutoff: removes jitter above this frequency. \\
+  \code{--norm-window}   & 10.0 s    & 1--120     & Rolling window for 0--100 normalisation. \\
+  \code{--low-pct}       & 3.0       & 0--50      & Low percentile used in normalisation. \\
+  \code{--high-pct}      & 97.0      & 50--100    & High percentile used in normalisation. \\
+  \code{--floor}         & 0.35      & 0--1       & Minimum local range vs.\ typical range (prevents amplifying pauses). \\
+  \code{--invert}        & off       & flag       & Flip positions 0 and 100. \\
+  \code{--smooth}        & 0.0 s     & $\ge 0$    & Pre-scaling smoothing window (0 = off). \\
+  \code{--boost}         & 1.0       & $\ge 1$    & Expand light strokes towards centre (1 = off). \\
+  \code{--gain}          & 1.0       & $>0$       & Amplitude scale around centre (1 = off). \\
+  \code{--offset}        & 0.0       & $-50$--50  & Centre position shift in 0--100 units. \\
+  \code{--hp2}           & 0.0 Hz    & $\ge 0$    & Second high-pass on the scaled funscript (0 = off). \\
+  \code{--hfboost}       & 0.0       & $\ge 0$    & High-frequency amplitude boost (0 = off). \\
+  \code{--hf-freq}       & 1.5 Hz    & $>0$       & Start frequency for \code{--hfboost}. \\
+  \code{--renorm}        & 0.0 s     & 0 or $\ge 0.5$ & Re-normalisation window (0 = off). \\
+  \code{--renorm-floor}  & 0.15      & 0--1       & Re-normalisation floor (lower = more amplification of quiet sections). \\
+
+  % Keyframes
+  \multicolumn{4}{l}{\textit{Keyframes}} \\
+  \code{--min-amp}       & 12.0      & 0--100     & Minimum stroke amplitude to include (0--100 units). \\
+  \code{--min-interval}  & 0.12 s    & $>0$       & Minimum seconds between consecutive keyframes. \\
+  \code{--max-speed}     & 450.0 u/s & $>0$       & Maximum position speed in units per second. \\
+
+  % Folder
+  \multicolumn{4}{l}{\textit{Folder mode}} \\
+  \code{--recursive}     & off       & flag       & Search subfolders for videos. \\
+  \code{--overwrite}     & off       & flag       & Regenerate scripts even if a \code{.funscript} already exists. \\
+  \code{--folder-jobs}   & 1         & $\ge 1$    & Number of videos to process simultaneously. \\
+
+  % Debug
+  \multicolumn{4}{l}{\textit{Debug and diagnostics}} \\
+  \code{--plot}          & ---       & file path  & Save debug plots: \code{debug.png} (signals) and \code{debug.roi.png} (motion map). \\
+  \code{--debug}         & ---       & directory  & Save 6 annotated videos plus \code{sinais.csv} and \code{decisoes.json}. \\
+  \code{--debug-videos}  & all       & list/all/none & Which debug videos to generate (saves time if you only need some). \\
+  \code{--debug-height}  & 360 px    & $>0$       & Image height in debug videos. \\
+  \code{--debug-window}  & 15.0 s    & $>0$       & Seconds visible in the sliding graph in debug videos. \\
+  \code{--accel-test}    & ---       & flag       & Report hardware acceleration options and throughput, then exit. \\
+
+\end{longtable}
+\endgroup
+
+\vspace{1em}
+\noindent\small $\dagger$ These parameters affect optical flow computation and require \textbf{Recalculate flow} in the GUI.
+
+% -----------------------------------------------------------------------
+\section*{Keyboard Shortcuts}
+\addcontentsline{toc}{section}{Keyboard Shortcuts}
+
+\begin{center}
+\begin{tabular}{ll}
+  \toprule
+  Shortcut & Action \\
+  \midrule
+  \key{Space}        & Play / pause \\
+  \key{$\leftarrow$} / \key{$\rightarrow$} & Step one frame back / forward \\
+  \key{R}            & Recalculate flow \\
+  \key{Ctrl+S}       & Save funscript \\
+  \key{Ctrl+O}       & Open video \\
+  \key{Ctrl+Shift+O} & Open folder \\
+  \key{G}            & Suggest chapters (auto-detect) \\
+  \key{N}            & New chapter at cursor \\
+  \key{I}            & Toggle invert for current chapter \\
+  \key{Esc}          & Cancel running operation \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\end{document}

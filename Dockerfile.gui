@@ -1,0 +1,34 @@
+FROM python:3.11-slim
+
+# System dependencies: VNC stack, X11, window manager and ffmpeg
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libgl1-mesa-glx \
+    libglib2.0-0 \
+    x11vnc \
+    xvfb \
+    fluxbox \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements.txt .
+# Install all deps including DearPyGui for the GUI
+RUN pip install --no-cache-dir numpy scipy opencv-python matplotlib dearpygui
+
+COPY funautoscripter.py .
+COPY funautoscripter_gui.py .
+COPY src/ src/
+
+# VNC port
+EXPOSE 5900
+
+# Start Xvfb, fluxbox window manager, x11vnc and the GUI application.
+# The GUI requires a DISPLAY; this container provides one via Xvfb.
+# Connect with any VNC client to localhost:5900.
+CMD Xvfb :99 -screen 0 1920x1080x24 & \
+    sleep 1 && \
+    DISPLAY=:99 fluxbox & \
+    sleep 1 && \
+    x11vnc -display :99 -forever -nopw -listen 0.0.0.0 -rfbport 5900 & \
+    sleep 1 && \
+    DISPLAY=:99 python funautoscripter_gui.py

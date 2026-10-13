@@ -2542,6 +2542,8 @@ class App:
             self.rect_reset = False
             self.place_rect()
         self.draw_sel(canvas)
+        if self.src and self.src.loading:
+            fl.put(canvas, "Loading...", (10, CH - 10), 0.6, (255, 220, 80))
         self.buf[..., :3] = canvas[..., ::-1] * (1.0 / 255.0)
 
     def refresh_inspector(self, k):
@@ -2638,9 +2640,12 @@ class App:
             return
         r = self.res
         if self.playing:
-            self.set_time(self.t + dt * self.speed)
-            if self.t >= r["t"][-1]:
-                self.playing = False
+            if self.src and self.src.loading:
+                pass  # hold position until the seek frame arrives
+            else:
+                self.set_time(self.t + dt * self.speed)
+                if self.t >= r["t"][-1]:
+                    self.playing = False
         if self.dirty_view or self.playing:
             self.dirty_view = False
             ti = self.frame_index()

@@ -70,6 +70,10 @@ class FrameSource:
         else:
             cap2.release()
 
+    @property
+    def loading(self):
+        return self._seek_wanted != -1 and self._seek_result is None
+
     def get(self, t):
         idx = max(0, int(round(t * self.fps)))
 

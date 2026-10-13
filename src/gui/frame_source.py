@@ -1,16 +1,16 @@
-"""Video frame access: sequential during playback, async seek on large jumps."""
+"""Video frame access: ffmpeg for seeks, OpenCV for sequential reads."""
 import threading
+import subprocess
+import numpy as np
 import cv2
 
 
 class FrameSource:
     """Access to the original video frames.
 
-    Sequential reads (playback, small forward steps) happen on the calling thread
-    and are fast. Large seeks (chapter transitions, timeline scrubbing) are handed
-    off to a background thread so the UI never freezes. The last known frame is
-    returned immediately; the display updates on the next render tick once the
-    background thread delivers the result.
+    Seeks use ffmpeg fast keyframe seek so the requested frame appears
+    immediately without decoding the entire GOP. Sequential reads (playback,
+    small forward steps) use OpenCV and are unaffected.
     """
 
     def __init__(self, path):
@@ -21,24 +21,50 @@ class FrameSource:
         self.sh = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         n = self.cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
         self.dur = (n / self.fps) if n > 0 else 1e9
+        self._frame_bytes = self.sw * self.sh * 3
         self.next = 0
         self.last = (-1, None)
-        self._seek_wanted = -1   # most recent async seek target
-        self._seek_result = None # (idx, frame, cap2) set by background thread when done
+        self._seek_wanted = -1
+        self._seek_result = None   # (idx, frame, cap2)
 
-    # ------------------------------------------------------------------
     def _do_seek(self, idx):
-        """Background thread: open a fresh cap, seek, decode one frame."""
+        """Background: ffmpeg fast seek for the frame; OpenCV cap for subsequent sequential reads."""
+        if self._seek_wanted != idx:
+            return
+        t = idx / self.fps
+        frame = None
+        try:
+            r = subprocess.run(
+                ["ffmpeg", "-ss", f"{t:.6f}", "-i", self._path,
+                 "-vframes", "1", "-f", "rawvideo", "-pix_fmt", "bgr24",
+                 "-v", "quiet", "pipe:1"],
+                capture_output=True, timeout=10,
+            )
+            if r.returncode == 0 and len(r.stdout) == self._frame_bytes:
+                frame = np.frombuffer(r.stdout, dtype=np.uint8).reshape(self.sh, self.sw, 3).copy()
+        except Exception:
+            pass
+
+        if self._seek_wanted != idx:
+            return
+
+        # Reposition a fresh OpenCV cap for subsequent sequential reads.
+        # This is the slow part, but it happens after the frame is already displayed.
         cap2 = cv2.VideoCapture(self._path)
         cap2.set(cv2.CAP_PROP_POS_FRAMES, idx)
-        ok, f = cap2.read()
-        if ok and self._seek_wanted == idx:
-            # Hand cap2 to the main thread so it can continue reading sequentially.
-            self._seek_result = (idx, f, cap2)
+        if frame is None:
+            # ffmpeg failed; fall back to OpenCV for the frame itself
+            ok, frame = cap2.read()
+            if not ok:
+                cap2.release()
+                return
+            cap2.set(cv2.CAP_PROP_POS_FRAMES, idx)  # reset: read() advanced position
+
+        if self._seek_wanted == idx:
+            self._seek_result = (idx, frame, cap2)
         else:
             cap2.release()
 
-    # ------------------------------------------------------------------
     def get(self, t):
         idx = max(0, int(round(t * self.fps)))
 
@@ -48,8 +74,8 @@ class FrameSource:
             self._seek_result = None
             _, f, cap2 = r
             self.cap.release()
-            self.cap = cap2       # already positioned just past idx
-            self.next = idx + 1
+            self.cap = cap2       # positioned at idx; sequential reads start here
+            self.next = idx
             self.last = (idx, f)
             return f
 
@@ -58,13 +84,12 @@ class FrameSource:
 
         needs_seek = idx < self.next or idx - self.next > 12
         if needs_seek:
-            # Start a background seek if this target isn't already in flight.
             if self._seek_wanted != idx:
                 self._seek_wanted = idx
                 threading.Thread(target=self._do_seek, args=(idx,), daemon=True).start()
-            return self.last[1]   # show last known frame until seek completes
+            return self.last[1]
 
-        # Sequential read — fast, no blocking.
+        # Sequential read — fast, no seeking.
         while self.next < idx:
             if not self.cap.grab():
                 break

@@ -35,13 +35,19 @@ class FrameSource:
         frame = None
         try:
             r = subprocess.run(
-                ["ffmpeg", "-ss", f"{t:.6f}", "-i", self._path,
-                 "-vframes", "1", "-f", "rawvideo", "-pix_fmt", "bgr24",
+                ["ffmpeg",
+                 "-ss", f"{t:.6f}",
+                 "-hwaccel", "none",               # force CPU decode, no GPU activity
+                 "-i", self._path,
+                 "-vframes", "1",
+                 "-f", "rawvideo", "-pix_fmt", "bgr24",
+                 "-s", f"{self.sw}x{self.sh}",     # force exact size (handles rotation metadata)
+                 "-autorotate", "0",
                  "-v", "quiet", "pipe:1"],
                 capture_output=True, timeout=10,
             )
-            if r.returncode == 0 and len(r.stdout) == self._frame_bytes:
-                frame = np.frombuffer(r.stdout, dtype=np.uint8).reshape(self.sh, self.sw, 3).copy()
+            if r.returncode == 0 and len(r.stdout) >= self._frame_bytes:
+                frame = np.frombuffer(r.stdout[:self._frame_bytes], dtype=np.uint8).reshape(self.sh, self.sw, 3).copy()
         except Exception:
             pass
 

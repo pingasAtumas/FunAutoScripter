@@ -147,6 +147,7 @@ TIPS_UI = {
     "chap_list": "Video chapters. Click to activate one (also [ and ]).",
     "b_chap_new": "Splits the chapter at the current cursor position.  Shortcut: N",
     "b_chap_del": "Merges this chapter into the previous one.",
+    "b_chap_del_all": "Removes all chapters and resets to a single chapter covering the whole video.",
     "b_chap_flow": "Computes the flow for all chapters that do not have it yet.",
     "btn_suggest": "Detects cuts and motion changes and splits the video into chapters automatically.  Shortcut: G",
     "out_path": "Where the funscript is saved.",

@@ -854,6 +854,7 @@ class App:
             with dpg.group(horizontal=True):
                 dpg.add_button(label="New chapter at cursor", tag="b_chap_new", callback=lambda: self.new_chapter())
                 dpg.add_button(label="Remove", tag="b_chap_del", callback=lambda: self.remove_chapter())
+                dpg.add_button(label="Remove all", tag="b_chap_del_all", callback=lambda: self.remove_all_chapters())
             dpg.add_button(label="Compute flow for all chapters", tag="b_chap_flow", width=-1, callback=lambda: self.start_chapters_flow())
             dpg.add_text("", tag="chap_text", wrap=0)
         groups = {}
@@ -1946,6 +1947,19 @@ class App:
         self.ov_other, self.ov_memo = {}, {}
         self.write_chapters_file()
         self.activate(j + 1, jump=False)
+
+    def remove_all_chapters(self):
+        if len(self.chapters) == 1:
+            self.status = "already one chapter"
+            return
+        if self.busy():
+            self.status = "wait for the computation to finish (or cancel) before removing"
+            return
+        self.chapters = self.default_chapters()
+        self.ov_other, self.ov_memo = {}, {}
+        self.write_chapters_file()
+        self.activate(0, jump=False)
+        self.status = "all chapters removed"
 
     def remove_chapter(self):
         if len(self.chapters) == 1:

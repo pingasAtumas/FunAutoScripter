@@ -1,137 +1,107 @@
-"""Video frame access: ffmpeg pipe + producer/consumer queue.
-
-ffmpeg decodes and scales in one pass (hardware-accelerated if available).
-A producer thread fills a bounded queue; the main thread pops each tick
-without ever blocking on decode. Seeking restarts the pipe.
-"""
+"""Video frame access: sequential during playback, async seek on large jumps."""
 import threading
-import queue
-import subprocess
-import numpy as np
 import cv2
 
-PREVIEW_W = 1280
-QUEUE_SIZE = 8
+MAX_PREVIEW_W = 1280   # preview is downscaled to at most this width
 
 
 class FrameSource:
+    """Access to the original video frames.
+
+    Sequential reads (playback, small forward steps) happen on the calling thread
+    and are fast. Large seeks (chapter transitions, timeline scrubbing) are handed
+    off to a background thread so the UI never freezes. The last known frame is
+    returned immediately; the display updates on the next render tick once the
+    background thread delivers the result.
+
+    Frames are downscaled to MAX_PREVIEW_W on read for performance.
+    sw/sh reflect the downscaled dimensions.
+    """
+
     def __init__(self, path):
         self._path = path
-        cap = cv2.VideoCapture(path)
-        self.fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-        full_w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        full_h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        n = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+        self.cap = cv2.VideoCapture(path)
+        self.fps = self.cap.get(cv2.CAP_PROP_FPS) or 30.0
+        full_w = int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        full_h = int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        n = self.cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
         self.dur = (n / self.fps) if n > 0 else 1e9
-        cap.release()
-        if full_w > PREVIEW_W:
-            self.sw = PREVIEW_W
-            self.sh = max(2, int(full_h * PREVIEW_W / full_w) & ~1)
+        if full_w > MAX_PREVIEW_W:
+            scale = MAX_PREVIEW_W / full_w
+            self.sw = MAX_PREVIEW_W
+            self.sh = max(1, int(full_h * scale))
         else:
-            self.sw, self.sh = full_w, full_h
-        self._frame_bytes = self.sw * self.sh * 3
-        self._queue = queue.Queue(maxsize=QUEUE_SIZE)
-        self._stop = threading.Event()
-        self._gen = 0
-        self._loading = False
+            self.sw = full_w
+            self.sh = full_h
+        self.next = 0
         self.last = (-1, None)
+        self._seek_wanted = -1
+        self._seek_result = None  # (idx, frame, cap2)
 
-    # ------------------------------------------------------------------
-    def _open_pipe(self, idx):
-        t = max(0.0, idx / self.fps)
-        cmd = [
-            "ffmpeg", "-ss", f"{t:.6f}", "-i", self._path,
-            "-vf", f"scale={self.sw}:{self.sh}",
-            "-f", "rawvideo", "-pix_fmt", "bgr24",
-            "-v", "quiet", "pipe:1",
-        ]
-        return subprocess.Popen(cmd, stdout=subprocess.PIPE)
-
-    def _read_frame(self, proc):
-        try:
-            raw = proc.stdout.read(self._frame_bytes)
-        except Exception:
+    def _scale(self, frame):
+        if frame is None:
             return None
-        if len(raw) != self._frame_bytes:
-            return None
-        return np.frombuffer(raw, dtype=np.uint8).reshape(self.sh, self.sw, 3).copy()
+        if frame.shape[1] != self.sw or frame.shape[0] != self.sh:
+            return cv2.resize(frame, (self.sw, self.sh), interpolation=cv2.INTER_AREA)
+        return frame
 
-    def _kill(self, proc):
-        try:
-            proc.kill()
-            proc.wait(timeout=2)
-        except Exception:
-            pass
-
-    def _start_pipe(self, idx):
-        self._stop.set()
-        self._gen += 1
-        gen = self._gen
-        while not self._queue.empty():
-            try:
-                self._queue.get_nowait()
-            except queue.Empty:
-                break
-        self._stop.clear()
-        self._loading = True
-        proc = self._open_pipe(idx)
-        threading.Thread(target=self._producer, args=(proc, idx, gen),
-                         daemon=True).start()
-
-    def _producer(self, proc, start_idx, gen):
-        n = start_idx
-        try:
-            while not self._stop.is_set():
-                frame = self._read_frame(proc)
-                if frame is None:
-                    break
-                self._loading = False
-                while not self._stop.is_set():
-                    try:
-                        self._queue.put((gen, n, frame), timeout=0.05)
-                        n += 1
-                        break
-                    except queue.Full:
-                        pass
-        finally:
-            self._loading = False   # always clear — even if ffmpeg failed immediately
-            self._kill(proc)
-
-    # ------------------------------------------------------------------
     @property
     def loading(self):
-        return self._loading
+        # True until get() picks up the result and resets _seek_wanted
+        return self._seek_wanted != -1
 
+    # ------------------------------------------------------------------
+    def _do_seek(self, idx):
+        """Background thread: open a fresh cap, seek, decode one frame."""
+        cap2 = cv2.VideoCapture(self._path)
+        cap2.set(cv2.CAP_PROP_POS_FRAMES, idx)
+        ok, f = cap2.read()
+        if ok and self._seek_wanted == idx:
+            self._seek_result = (idx, self._scale(f), cap2)
+        else:
+            cap2.release()
+
+    # ------------------------------------------------------------------
     def get(self, t):
         idx = max(0, int(round(t * self.fps)))
+
+        # Pick up a completed background seek.
+        r = self._seek_result
+        if r is not None and r[0] == idx:
+            self._seek_result = None
+            self._seek_wanted = -1   # clear flag — seek is done
+            _, f, cap2 = r
+            self.cap.release()
+            self.cap = cap2       # already positioned just past idx
+            self.next = idx + 1
+            self.last = (idx, f)
+            return f
 
         if self.last[0] == idx:
             return self.last[1]
 
-        # Start pipe on first call; restart on large jump or backward seek.
-        # Only check position if we already have a frame (last[0] >= 0).
-        needs_restart = (self._gen == 0) or (
-            not self._loading
-            and self.last[0] >= 0
-            and (idx < self.last[0] or idx - self.last[0] > 60)
-        )
-        if needs_restart:
-            self._start_pipe(idx)
+        needs_seek = idx < self.next or idx - self.next > 12
+        if needs_seek:
+            if self._seek_wanted != idx:
+                self._seek_wanted = idx
+                threading.Thread(target=self._do_seek, args=(idx,), daemon=True).start()
             return self.last[1]
 
-        cur_gen = self._gen
-        while True:
-            try:
-                g, qidx, frame = self._queue.get_nowait()
-                if g != cur_gen:
-                    continue        # stale frame from a previous pipe
-                if qidx >= idx:
-                    self.last = (qidx, frame)
-                    return frame
-                # qidx < idx: behind target, discard and keep draining
-            except queue.Empty:
-                return self.last[1]
+        # Sequential read — fast, no blocking.
+        while self.next < idx:
+            if not self.cap.grab():
+                break
+            self.next += 1
+        ok, f = self.cap.read()
+        self.next += 1
+        if ok:
+            self.last = (idx, self._scale(f))
+        return self.last[1]
 
     def close(self):
-        self._stop.set()
-        # Producer threads are daemon; they exit and kill their own proc
+        self._seek_wanted = -1
+        self.cap.release()
+        r = self._seek_result
+        if r:
+            r[2].release()
+        self._seek_result = None

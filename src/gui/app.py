@@ -2616,7 +2616,7 @@ class App:
         self.save_config()
         self.update_warning()
         self.handle_overview()
-        if self.src is not None and not self.src._queue.empty():
+        if self.src is not None and self.src._seek_result is not None:
             self.dirty_view = True
         if self.pending_flow is not None:
             self.apply_flow()

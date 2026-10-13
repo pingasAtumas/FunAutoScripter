@@ -37,7 +37,6 @@ class FrameSource:
             r = subprocess.run(
                 ["ffmpeg",
                  "-ss", f"{t:.6f}",
-                 "-hwaccel", "none",               # force CPU decode, no GPU activity
                  "-i", self._path,
                  "-vframes", "1",
                  "-f", "rawvideo", "-pix_fmt", "bgr24",

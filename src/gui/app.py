@@ -794,7 +794,9 @@ class App:
             dpg.add_button(label="Play/Pause", tag="btn_play", callback=lambda: self.toggle_play())
             dpg.add_combo(["0.25x", "0.5x", "1x", "2x"], default_value="1x", width=70, tag="p_speed", callback=self.on_speed)
             self.txt("muted", "seek in the Overview window")
-        dpg.add_text("", tag="t_label")
+        with dpg.group(horizontal=True):
+            dpg.add_text("", tag="t_label")
+            dpg.add_text("Loading...", tag="t_loading", color=(220, 60, 60), show=False)
         with dpg.group(horizontal=True):
             dpg.add_checkbox(label="follow cursor", tag="follow", default_value=True)
             dpg.add_slider_float(label="width (s)", tag="follow_w", default_value=20.0, min_value=3.0,
@@ -2542,8 +2544,6 @@ class App:
             self.rect_reset = False
             self.place_rect()
         self.draw_sel(canvas)
-        if self.src and self.src.loading:
-            fl.put(canvas, "Loading...", (10, CH - 10), 0.6, (255, 220, 80))
         self.buf[..., :3] = canvas[..., ::-1] * (1.0 / 255.0)
 
     def refresh_inspector(self, k):
@@ -2639,10 +2639,11 @@ class App:
         if self.res is None:
             return
         r = self.res
+        loading = bool(self.src and self.src.loading)
+        if dpg.does_item_exist("t_loading"):
+            dpg.configure_item("t_loading", show=loading)
         if self.playing:
-            if self.src and self.src.loading:
-                pass  # hold position until the seek frame arrives
-            else:
+            if not loading:
                 self.set_time(self.t + dt * self.speed)
                 if self.t >= r["t"][-1]:
                     self.playing = False

@@ -28,7 +28,8 @@ class FrameSource:
 
     @property
     def loading(self):
-        return self._seek_wanted != -1 and self._seek_result is None
+        # True until get() picks up the result and resets _seek_wanted
+        return self._seek_wanted != -1
 
     # ------------------------------------------------------------------
     def _do_seek(self, idx):

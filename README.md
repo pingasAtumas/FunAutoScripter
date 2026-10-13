@@ -131,13 +131,3 @@ pyinstaller --onefile --name funautoscripter-gui funautoscripter_gui.py
 Output binaries appear in `dist/`. The `build/` directory and `*.spec` files are generated automatically and are excluded from version control.
 
 Release builds for Linux and Windows are produced automatically by the GitHub Actions workflow (`.github/workflows/release.yml`) on every `v*` tag push.
-
-## Contributing
-
-Contributions are welcome. Please open an issue first to discuss any significant change.
-
-- Follow the existing code style (no AI, no neural networks, CPU-only — see project rules in `CLAUDE.md`).
-- All new parameters that affect step 1 (optical flow extraction) must be added to `cache_key()` in `src/flow.py`.
-- Any algorithm change must maintain or improve the synthetic test correlations documented in the **Testing** section above.
-- Run both synthetic tests before submitting a pull request.
-- User-facing text (log messages, help strings, comments) must be in English.

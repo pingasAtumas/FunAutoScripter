@@ -851,8 +851,8 @@ class App:
             self.txt("muted", "Detects cuts and axis or zone changes from the full video flow and assigns "
                               "each chapter its axis-ref. Settings are in \"Auto Chapters\".", wrap=0)
             dpg.add_listbox(items=[], tag="chap_list", num_items=2, width=-1, callback=self.on_pick_chapter)
-            dpg.add_button(label="New chapter at cursor", tag="b_chap_new", width=-1, callback=lambda: self.new_chapter())
             with dpg.group(horizontal=True):
+                dpg.add_button(label="New chapter at cursor", tag="b_chap_new", callback=lambda: self.new_chapter())
                 dpg.add_button(label="Remove", tag="b_chap_del", callback=lambda: self.remove_chapter())
                 dpg.add_button(label="Remove all", tag="b_chap_del_all", callback=lambda: self.remove_all_chapters())
             dpg.add_button(label="Compute flow for all chapters", tag="b_chap_flow", width=-1, callback=lambda: self.start_chapters_flow())

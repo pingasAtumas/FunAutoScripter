@@ -17,11 +17,23 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Download static ffmpeg for bundling
+        run: |
+          wget -q "https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz" -O ffmpeg.tar.xz
+          tar -xf ffmpeg.tar.xz
+          cp ffmpeg-*-amd64-static/ffmpeg .
+          cp ffmpeg-*-amd64-static/ffprobe .
+          chmod +x ffmpeg ffprobe
+
       - name: Build Linux binaries
         run: |
           pip install pyinstaller numpy scipy opencv-python matplotlib dearpygui
-          pyinstaller --onefile --name funautoscripter funautoscripter.py
-          pyinstaller --onefile --name funautoscripter-gui funautoscripter_gui.py
+          pyinstaller --onefile --name funautoscripter \
+            --add-binary "ffmpeg:." --add-binary "ffprobe:." \
+            funautoscripter.py
+          pyinstaller --onefile --name funautoscripter-gui \
+            --add-binary "ffmpeg:." --add-binary "ffprobe:." \
+            funautoscripter_gui.py
 
       - name: Upload Linux CLI binary
         uses: actions/upload-artifact@v4
@@ -46,11 +58,20 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Download ffmpeg LGPL build for bundling
+        shell: powershell
+        run: |
+          Invoke-WebRequest -Uri "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip" -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_tmp
+          $bin = Get-ChildItem ffmpeg_tmp -Recurse -Filter "bin" | Select-Object -First 1
+          Copy-Item "$($bin.FullName)\ffmpeg.exe" .
+          Copy-Item "$($bin.FullName)\ffprobe.exe" .
+
       - name: Build Windows binaries
         run: |
           pip install pyinstaller numpy scipy opencv-python matplotlib dearpygui
-          pyinstaller --onefile --name funautoscripter funautoscripter.py
-          pyinstaller --onefile --name funautoscripter-gui funautoscripter_gui.py
+          pyinstaller --onefile --name funautoscripter --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;." funautoscripter.py
+          pyinstaller --onefile --name funautoscripter-gui --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;." funautoscripter_gui.py
 
       - name: Upload Windows CLI binary
         uses: actions/upload-artifact@v4

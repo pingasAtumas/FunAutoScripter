@@ -9,7 +9,7 @@ import cv2
 import numpy as np
 from scipy.signal import butter, sosfreqz
 
-from .flow import log, decode_cmd
+from .flow import log, decode_cmd, _ff_bin
 from .signal import velocity, to_position, normalise, enhance, post_enhance, keyframes
 
 
@@ -42,7 +42,7 @@ class VideoOut:
     def __init__(self, path, w, h, fps):
         self.w, self.h = w, h
         self.proc = subprocess.Popen(
-            ["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
+            [_ff_bin("ffmpeg"), "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "bgr24",
              "-s", f"{w}x{h}", "-r", str(fps), "-i", "-", "-an", "-c:v", "libx264",
              "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p", path],
             stdin=subprocess.PIPE)

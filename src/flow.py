@@ -15,6 +15,13 @@ def log(*args):
     print(*args, file=sys.stderr, flush=True)
 
 
+def _ff_bin(name):
+    """Return path to ffmpeg/ffprobe: bundled binary when frozen by PyInstaller, else system PATH."""
+    if getattr(sys, "frozen", False):
+        return os.path.join(sys._MEIPASS, name)
+    return name
+
+
 _PROBE = {}
 
 
@@ -35,7 +42,7 @@ def probe(path):
 
 def _probe(path):
     out = subprocess.check_output([
-        "ffprobe", "-v", "error", "-select_streams", "v:0",
+        _ff_bin("ffprobe"), "-v", "error", "-select_streams", "v:0",
         "-show_entries", "stream=width,height:format=duration",
         "-of", "json", path])
     j = json.loads(out)
@@ -101,7 +108,7 @@ def decode_cmd(a, color=False):
     W = (a.width // cell) * cell
     H = max(cell, int(round(W * ch / cw / cell)) * cell)
     vf = chain + [f"fps={a.fps}", f"scale={W}:{H}:flags=area", f"format={pix}"]
-    cmd = ["ffmpeg", "-v", "error", "-nostdin"]
+    cmd = [_ff_bin("ffmpeg"), "-v", "error", "-nostdin"]
     hw = getattr(a, "hwaccel", None)
     if hw:
         cmd += ["-hwaccel", "auto" if hw is True else str(hw)]    # use hardware if available, fall back to software
@@ -211,7 +218,7 @@ def accel_report(a=None):
         except Exception as e:
             P(f"nvidia-smi failed: {e}")
     try:
-        r = subprocess.run(["ffmpeg", "-hide_banner", "-hwaccels"], capture_output=True, text=True, timeout=20)
+        r = subprocess.run([_ff_bin("ffmpeg"), "-hide_banner", "-hwaccels"], capture_output=True, text=True, timeout=20)
         hw = [x.strip() for x in r.stdout.splitlines()[1:] if x.strip()]
         P("ffmpeg hardware decoding (--hwaccel): " + (", ".join(hw) or "none")
           + ("   (cuda = NVIDIA NVDEC)" if "cuda" in hw else ""))

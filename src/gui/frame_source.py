@@ -1,8 +1,8 @@
-"""Video frame access: ffmpeg pipe with producer thread.
+"""Video frame access: ffmpeg pipe + producer/consumer queue.
 
-ffmpeg decodes and scales in one pass (hardware-accelerated if available),
-outputting small frames into a queue. The main thread never blocks on decode.
-Seeking restarts the pipe at the target position.
+ffmpeg decodes and scales in one pass (hardware-accelerated if available).
+A producer thread fills a bounded queue; the main thread pops each tick
+without ever blocking on decode. Seeking restarts the pipe.
 """
 import threading
 import queue
@@ -11,7 +11,6 @@ import numpy as np
 import cv2
 
 PREVIEW_W = 1280
-SEEK_PREBUFFER = 2.0   # fast-seek to (t - 2s), then accurate-seek 2s forward
 QUEUE_SIZE = 8
 
 
@@ -33,24 +32,20 @@ class FrameSource:
         self._frame_bytes = self.sw * self.sh * 3
         self._queue = queue.Queue(maxsize=QUEUE_SIZE)
         self._stop = threading.Event()
-        self._gen = 0          # incremented on each restart to discard stale frames
+        self._gen = 0
         self._loading = False
         self.last = (-1, None)
 
     # ------------------------------------------------------------------
     def _open_pipe(self, idx):
-        t = idx / self.fps
-        prebuf = min(t, SEEK_PREBUFFER)
+        t = max(0.0, idx / self.fps)
         cmd = [
-            "ffmpeg",
-            "-ss", f"{t - prebuf:.6f}",    # fast seek
-            "-i", self._path,
-            "-ss", f"{prebuf:.6f}",         # accurate seek from keyframe
+            "ffmpeg", "-ss", f"{t:.6f}", "-i", self._path,
             "-vf", f"scale={self.sw}:{self.sh}",
             "-f", "rawvideo", "-pix_fmt", "bgr24",
             "-v", "quiet", "pipe:1",
         ]
-        return subprocess.Popen(cmd, stdout=subprocess.PIPE, bufsize=0)
+        return subprocess.Popen(cmd, stdout=subprocess.PIPE)
 
     def _read_frame(self, proc):
         try:
@@ -69,11 +64,9 @@ class FrameSource:
             pass
 
     def _start_pipe(self, idx):
-        """Signal the current producer to stop and start a new one at idx."""
         self._stop.set()
         self._gen += 1
         gen = self._gen
-        # Drain stale frames
         while not self._queue.empty():
             try:
                 self._queue.get_nowait()
@@ -87,15 +80,12 @@ class FrameSource:
 
     def _producer(self, proc, start_idx, gen):
         n = start_idx
-        first = True
         try:
             while not self._stop.is_set():
                 frame = self._read_frame(proc)
                 if frame is None:
                     break
-                if first:
-                    self._loading = False
-                    first = False
+                self._loading = False
                 while not self._stop.is_set():
                     try:
                         self._queue.put((gen, n, frame), timeout=0.05)
@@ -104,6 +94,7 @@ class FrameSource:
                     except queue.Full:
                         pass
         finally:
+            self._loading = False   # always clear — even if ffmpeg failed immediately
             self._kill(proc)
 
     # ------------------------------------------------------------------
@@ -117,10 +108,13 @@ class FrameSource:
         if self.last[0] == idx:
             return self.last[1]
 
-        last_idx = self.last[0]
-        needs_restart = (not self._loading and self._gen == 0) or \
-                        (not self._loading and
-                         (idx < last_idx or idx - last_idx > 60))
+        # Start pipe on first call; restart on large jump or backward seek.
+        # Only check position if we already have a frame (last[0] >= 0).
+        needs_restart = (self._gen == 0) or (
+            not self._loading
+            and self.last[0] >= 0
+            and (idx < self.last[0] or idx - self.last[0] > 60)
+        )
         if needs_restart:
             self._start_pipe(idx)
             return self.last[1]
@@ -130,14 +124,14 @@ class FrameSource:
             try:
                 g, qidx, frame = self._queue.get_nowait()
                 if g != cur_gen:
-                    continue           # stale frame from previous pipe
+                    continue        # stale frame from a previous pipe
                 if qidx >= idx:
                     self.last = (qidx, frame)
                     return frame
-                # qidx < idx: behind, discard and keep reading
+                # qidx < idx: behind target, discard and keep draining
             except queue.Empty:
                 return self.last[1]
 
     def close(self):
         self._stop.set()
-        # Producer threads are daemon; they will exit and kill their proc
+        # Producer threads are daemon; they exit and kill their own proc

@@ -85,8 +85,12 @@ CACHE_VERSION = 2
 def cache_key(a, sw, sh):
     # Only things that change the flow itself belong here. If you add a stage 1
     # parameter, add it to this list, otherwise the cache goes stale silently.
-    return json.dumps([CACHE_VERSION, os.path.getsize(a.video), sw, sh, a.width,
-                       a.cell, a.fps, a.crop, getattr(a, "vr_zoom", 0.0), a.zoom, a.start, a.duration])
+    vr_zoom = getattr(a, "vr_zoom", 0.0) or 0.0
+    base = [CACHE_VERSION, os.path.getsize(a.video), sw, sh, a.width, a.cell, a.fps, a.crop]
+    if vr_zoom:
+        base.append(vr_zoom)   # only present when nonzero: vr_zoom=0 is identical to no vr_zoom
+    base += [a.zoom, a.start, a.duration]
+    return json.dumps(base)
 
 
 def decode_cmd(a, color=False):

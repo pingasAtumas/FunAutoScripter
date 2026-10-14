@@ -2095,6 +2095,14 @@ class App:
         self.txt("head", "Folder Videos")
         self.txt("muted", "click name to open  ·  checkbox to include in batch  ·  batch controls in Control panel",
                  wrap=0)
+        with dpg.group(horizontal=True):
+            self.txt("muted", "legend: ")
+            dpg.add_text("[s]", color=(80, 200, 80))
+            self.txt("muted", "= script  ")
+            dpg.add_text("[c]", color=(80, 160, 220))
+            self.txt("muted", "= cache  ")
+            dpg.add_text("[c|s]", color=(80, 200, 80))
+            self.txt("muted", "= both")
         with dpg.child_window(tag="vid_rows", height=-1, border=False):
             pass
 
@@ -2116,10 +2124,12 @@ class App:
             except OSError:
                 size_str = ""
             basename = os.path.basename(v)
-            if has_script:
-                prefix, theme = "[ok] ", self.th_vid_scripted
+            if has_script and has_cache:
+                prefix, theme = "[c|s] ", self.th_vid_scripted
+            elif has_script:
+                prefix, theme = "[s] ", self.th_vid_scripted
             elif has_cache:
-                prefix, theme = "[~] ", self.th_vid_cached
+                prefix, theme = "[c] ", self.th_vid_cached
             else:
                 prefix, theme = "", 0
             label = prefix + basename

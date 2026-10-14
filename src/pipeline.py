@@ -253,7 +253,7 @@ def build_parser():
     g.add_argument("--roi", type=float, default=0.4, help="auto region size as a fraction of the frame")
     g.add_argument("--roi-aspect", type=float, default=0.0, help="width/height ratio of the automatic region (1 = square, 2 = twice as wide, 0.5 = twice as tall). 0 inherits the video ratio. Area equals --roi")
     g.add_argument("--roi-window", type=float, default=3.0, help="seconds between region updates")
-    g.add_argument("--switch", type=float, default=1.3, help="new region must score this many times better to replace the current one")
+    g.add_argument("--switch", type=float, default=0.6, help="new region must score this many times better to replace the current one")
     g.add_argument("--period-weight", type=float, default=0.5, help="0 = pick region by magnitude only, 1 = pick by periodicity only")
     g.add_argument("--candidates", type=int, default=6, metavar="N",
                    help="number of region candidates evaluated per window (default 6)")

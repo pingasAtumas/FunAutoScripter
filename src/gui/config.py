@@ -235,12 +235,12 @@ BUILTIN_PRESETS = {
     "Default": ("Default values.", {}),
     "Light": ("Smooth and calm motion: fewer strokes, softer, reduced amplitude and speed.", {
         "smooth": 0.06, "lowpass": 3.0, "gain": 0.8, "floor": 0.45, "min_amp": 20.0,
-        "min_interval": 0.2, "max_speed": 300.0, "norm_window": 15.0, "switch": 1.5}),
+        "min_interval": 0.2, "max_speed": 300.0, "norm_window": 15.0}),
     "Strong": ("Large, pronounced strokes: full range, opens light strokes, accepts higher speed.", {
         "gain": 1.4, "boost": 1.3, "low_pct": 1.0, "high_pct": 99.0, "lowpass": 7.0,
         "min_amp": 8.0, "min_interval": 0.1, "max_speed": 650.0, "floor": 0.3}),
     "Precise": ("Faithfully follows real motion: stable region, low noise, fine detail preserved.", {
-        "period_weight": 0.6, "roi_window": 2.0, "switch": 1.6, "noise": 0.03, "lowpass": 6.0,
+        "period_weight": 0.6, "roi_window": 2.0, "noise": 0.03, "lowpass": 6.0,
         "norm_window": 15.0, "floor": 0.3, "min_amp": 8.0, "min_interval": 0.08, "max_speed": 500.0}),
     "Enhanced": ("Brings out small, fast strokes (treble boost and renormalisation). "
                  "May amplify noise during pauses.", {

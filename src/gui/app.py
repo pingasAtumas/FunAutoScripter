@@ -798,15 +798,16 @@ class App:
             dpg.set_item_height(tag, h)
 
     def build_video_panel(self):
-        with dpg.plot(tag="vplot", width=CW + 14, height=CH + 14, no_title=True, no_menus=True,
-                      no_mouse_pos=True, no_box_select=True, equal_aspects=True):
-            dpg.add_plot_axis(dpg.mvXAxis, tag="vx", no_gridlines=True, no_tick_marks=True,
-                              no_tick_labels=True, lock_min=True, lock_max=True)
-            with dpg.plot_axis(dpg.mvYAxis, tag="vy", no_gridlines=True, no_tick_marks=True,
-                               no_tick_labels=True, lock_min=True, lock_max=True):
-                dpg.add_image_series("tex", [0, 0], [CW, CH], tag="vimg")
-            dpg.set_axis_limits("vx", 0, CW)
-            dpg.set_axis_limits("vy", 0, CH)
+        with dpg.child_window(height=-165, border=False):
+            with dpg.plot(tag="vplot", width=-1, height=-1, no_title=True, no_menus=True,
+                          no_mouse_pos=True, no_box_select=True, equal_aspects=True):
+                dpg.add_plot_axis(dpg.mvXAxis, tag="vx", no_gridlines=True, no_tick_marks=True,
+                                  no_tick_labels=True, lock_min=True, lock_max=True)
+                with dpg.plot_axis(dpg.mvYAxis, tag="vy", no_gridlines=True, no_tick_marks=True,
+                                   no_tick_labels=True, lock_min=True, lock_max=True):
+                    dpg.add_image_series("tex", [0, 0], [CW, CH], tag="vimg")
+                dpg.set_axis_limits("vx", 0, CW)
+                dpg.set_axis_limits("vy", 0, CH)
         with dpg.group(horizontal=True):
             dpg.add_button(label="Play/Pause", tag="btn_play", callback=lambda: self.toggle_play())
             dpg.add_combo(["0.25x", "0.5x", "1x", "2x"], default_value="1x", width=70, tag="p_speed", callback=self.on_speed)

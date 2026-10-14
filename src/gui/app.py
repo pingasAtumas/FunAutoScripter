@@ -994,20 +994,22 @@ class App:
         self.ov_dirty = True
 
     def ov_segments(self):
-        """Per chapter: (start, end, data). Active chapter comes from the current result, others from the flow cache."""
+        """Per chapter: (start, end, data, chapter). Active chapter comes from the current result, others from the flow cache."""
+        chs = self.chapters  # single snapshot so segment tuples stay consistent with each other
         segs = []
-        for i, c in enumerate(self.chapters):
+        for i, c in enumerate(chs):
             data = None
             if i == self.active and self.res is not None and not self.geometry_stale():
                 data = self.ov_series_res(self.res, self.fps())
             else:
                 data = self.ov_other.get(i)          # o ativo, enquanto carrega, mostra o que havia
-            segs.append((c["start"], self.chapter_end(i), data))
+            end = chs[i + 1]["start"] if i + 1 < len(chs) else (self.src.dur if self.src else 1e9)
+            segs.append((c["start"], end, data, c))
         return segs
 
     def ov_total(self, segs):
         dur = self.src.dur if (self.src and self.src.dur < 1e8) else 0.0
-        last = max([float(d["t"][-1]) for _, _, d in segs if d is not None] or [0.0])
+        last = max([float(d["t"][-1]) for _, _, d, _ in segs if d is not None] or [0.0])
         return max(dur, last, 1.0)
 
     def draw_overview(self):
@@ -1025,7 +1027,7 @@ class App:
         mode = dpg.get_value("ov_mode")
         hb0, hb1 = OV_BAND + 3, OV_BAND + 33
         eb0, eb1 = hb1 + 3, hb1 + 31
-        for i, (s, e, data) in enumerate(segs):
+        for i, (s, e, data, c) in enumerate(segs):
             e = min(e, D)
             x0, x1 = X(s), X(e)
             col = CH_COLORS[i % len(CH_COLORS)]
@@ -1033,7 +1035,6 @@ class App:
             dpg.draw_rectangle((x0 + 1, 1), (max(x1 - 1, x0 + 2), OV_BAND), rounding=4, thickness=2 if act else 1,
                                color=(255, 255, 255, 255) if act else col + (255,),
                                fill=col + (215 if act else 130,), parent=P)
-            c = self.chapters[i]
             label = (f"{i + 1}" + (f"  {self.ref_text(c.get('axis_ref'))}" if c.get("axis_ref") else "")
                      + ("  zoom" if c.get("zoom") else "") + ("  inverted" if c.get("invert") else ""))
             while label and 7 * len(label) + 10 > x1 - x0:

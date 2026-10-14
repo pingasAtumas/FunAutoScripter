@@ -1,6 +1,7 @@
 """GUI App class and main() for FunAutoScripter."""
 import argparse
 import copy
+import glob
 import json
 import os
 import sys
@@ -75,6 +76,9 @@ class App:
         self.last_tick = time.perf_counter()
         self.mode = "none"
         self.view = (0, 0, CW, CH)
+        self.vplot_size = (0, 0)
+        self.vplot_rect = (0, 0, CW, CH)
+        self.loaded_pts = None
         self.cur_win = -1
         self.dirty_view = True
         self.fresh = False
@@ -398,12 +402,32 @@ class App:
         else:
             self.status = f"not found: {path}"
 
+    def _restore_cache_params(self, a):
+        """Read flow parameters from an existing cache and apply them to `a` and the UI sliders."""
+        vr_zoom = fl.read_cache_vr_zoom(a)
+        if vr_zoom != getattr(a, "vr_zoom", 0.0):
+            a.vr_zoom = vr_zoom
+            if dpg.does_item_exist("p_vr_zoom"):
+                dpg.set_value("p_vr_zoom", int(round(vr_zoom * 100)))
+
+    def _read_funscript_pts(self, path):
+        """Return [(ms, pos), ...] from a .funscript file, or None on failure."""
+        try:
+            with open(path, encoding="utf-8") as f:
+                doc = json.load(f)
+            actions = doc.get("actions") or []
+            return [(int(a["at"]), int(a["pos"])) for a in actions] if actions else None
+        except Exception:
+            return None
+
     def load_video(self, path):
         a = self.a
         if self.src:
             self.src.close()
         a.video = path
         a.output = os.path.splitext(path)[0] + ".funscript"
+        self.loaded_pts = self._read_funscript_pts(a.output)
+        self._restore_cache_params(a)
         self.src = FrameSource(path)
         self.chapters = fl.load_chapters("auto", path) or self.default_chapters()
         self.active = 0
@@ -560,6 +584,8 @@ class App:
                 dpg.add_text("", tag="bulk_text", wrap=0)
         with self.win("w_video", shown):
             self.build_video_panel()
+        with self.win("w_vidctrl", shown):
+            self.build_vidctrl_panel()
         with self.win("w_ov", shown, no_scrollbar=True):
             self.build_overview()
         with self.win("w_params", shown):
@@ -779,18 +805,20 @@ class App:
         ctrl_h = 56
         y1 = y0 + ctrl_h
         ov_h = OV_H + 70
-        rh = 500 if H >= 900 else max(300, int((H - y1 - ov_h) * 0.6))
+        vidctrl_h = 195
+        rh = 500 if H >= 900 else max(300, int((H - y1 - ov_h - vidctrl_h) * 0.6))
         vw = CW + 44
         pw = 360
         iw = max(300, W - vw - pw)
         boxes = {
             "w_ctrl": (0, y0, W, ctrl_h),
             "w_video": (0, y1, vw, rh),
-            "w_params": (vw, y1, pw, rh),
-            "w_insp": (vw + pw, y1, iw, rh),
-            "w_folder": (max(0, W - 330), y1, 330, rh),
-            "w_ov": (0, y1 + rh, W, ov_h),
-            "w_tl": (0, y1 + rh + ov_h, W, max(200, H - (y1 + rh + ov_h))),
+            "w_vidctrl": (0, y1 + rh, vw, vidctrl_h),
+            "w_params": (vw, y1, pw, rh + vidctrl_h),
+            "w_insp": (vw + pw, y1, iw, rh + vidctrl_h),
+            "w_folder": (max(0, W - 330), y1, 330, rh + vidctrl_h),
+            "w_ov": (0, y1 + rh + vidctrl_h, W, ov_h),
+            "w_tl": (0, y1 + rh + vidctrl_h + ov_h, W, max(200, H - (y1 + rh + vidctrl_h + ov_h))),
         }
         for tag, (x, y, w, h) in boxes.items():
             dpg.set_item_pos(tag, [x, y])
@@ -798,16 +826,17 @@ class App:
             dpg.set_item_height(tag, h)
 
     def build_video_panel(self):
-        with dpg.child_window(height=-165, border=False):
-            with dpg.plot(tag="vplot", width=-1, height=-1, no_title=True, no_menus=True,
-                          no_mouse_pos=True, no_box_select=True, equal_aspects=True, no_inputs=True):
-                dpg.add_plot_axis(dpg.mvXAxis, tag="vx", no_gridlines=True, no_tick_marks=True,
-                                  no_tick_labels=True)
-                with dpg.plot_axis(dpg.mvYAxis, tag="vy", no_gridlines=True, no_tick_marks=True,
-                                   no_tick_labels=True):
-                    dpg.add_image_series("tex", [0, 0], [CW, CH], tag="vimg")
-                dpg.set_axis_limits("vx", 0, CW)
-                dpg.set_axis_limits("vy", 0, CH)
+        with dpg.plot(tag="vplot", width=-1, height=-1, no_title=True, no_menus=True,
+                      no_mouse_pos=True, no_box_select=True):
+            dpg.add_plot_axis(dpg.mvXAxis, tag="vx", no_gridlines=True, no_tick_marks=True,
+                              no_tick_labels=True)
+            with dpg.plot_axis(dpg.mvYAxis, tag="vy", no_gridlines=True, no_tick_marks=True,
+                               no_tick_labels=True):
+                dpg.add_image_series("tex", [0, 0], [CW, CH], tag="vimg")
+            dpg.set_axis_limits("vx", 0, CW)
+            dpg.set_axis_limits("vy", 0, CH)
+
+    def build_vidctrl_panel(self):
         with dpg.group(horizontal=True):
             dpg.add_button(label="Play/Pause", tag="btn_play", callback=lambda: self.toggle_play())
             dpg.add_combo(["0.25x", "0.5x", "1x", "2x"], default_value="1x", width=70, tag="p_speed", callback=self.on_speed)
@@ -819,6 +848,8 @@ class App:
             dpg.add_checkbox(label="follow cursor", tag="follow", default_value=True)
             dpg.add_slider_float(label="width (s)", tag="follow_w", default_value=20.0, min_value=3.0,
                                  max_value=120.0, format="%.0f", width=140)
+        dpg.add_separator()
+        self.txt("muted", "Overlays")
         with dpg.group(horizontal=True):
             dpg.add_checkbox(label="ROI", tag="ly_roi", default_value=True)
             dpg.add_checkbox(label="candidates", tag="ly_cand", default_value=True)
@@ -826,14 +857,15 @@ class App:
             dpg.add_checkbox(label="frame magnitude", tag="ly_mag", default_value=False)
             dpg.add_checkbox(label="periodicity", tag="ly_per", default_value=False)
             dpg.add_checkbox(label="axis", tag="ly_axis", default_value=True)
+        dpg.add_separator()
+        self.txt("muted", "Selection")
         with dpg.group(horizontal=True):
-            dpg.add_text("Selection:")
             dpg.add_radio_button(["none", "region", "zoom", "direction"], horizontal=True, default_value="none",
                                  tag="sel_mode", callback=lambda s, v: self.set_mode({"none": "none", "region": "region", "zoom": "zoom", "direction": "axis"}[v]))
         with dpg.group(horizontal=True):
             dpg.add_button(label="Apply selection", tag="b_sel_apply", callback=lambda: self.apply_selection())
             dpg.add_button(label="Clear", tag="b_sel_clear", callback=lambda: self.clear_selection())
-            dpg.add_text("region: automatic   zoom: none", tag="sel_text")
+        dpg.add_text("region: automatic   zoom: none", tag="sel_text")
 
     def build_params(self):
         dpg.add_text("3D/VR Crop")
@@ -1034,6 +1066,20 @@ class App:
         last = max([float(d["t"][-1]) for _, _, d, _ in segs if d is not None] or [0.0])
         return max(dur, last, 1.0)
 
+    def _draw_ov_pts(self, pts, x0, x1, seg_s, seg_e, eb0, eb1, D, w, P):
+        """Draw funscript keyframe outline in the overview for a script-only (no flow) chapter."""
+        X = lambda t: min(max(t / D, 0.0), 1.0) * w
+        pts_in = [(ms / 1000.0, pos) for ms, pos in pts if seg_s <= ms / 1000.0 <= seg_e]
+        if not pts_in:
+            return
+        for j in range(len(pts_in) - 1):
+            t0, p0 = pts_in[j]
+            t1, p1 = pts_in[j + 1]
+            xa, xb = X(t0), X(t1)
+            ya = eb1 - p0 / 100.0 * (eb1 - eb0)
+            yb = eb1 - p1 / 100.0 * (eb1 - eb0)
+            dpg.draw_line((xa, ya), (xb, yb), color=(180, 190, 210, 200), thickness=1.5, parent=P)
+
     def draw_overview(self):
         """Static part: chapters, colour intensity, funscript outline and time ruler."""
         w = self.ov_w
@@ -1065,7 +1111,10 @@ class App:
                 dpg.draw_text((x0 + 6, 4), label, color=(255, 255, 255, 255), size=13, parent=P)
             if data is None:
                 dpg.draw_rectangle((x0, hb0), (x1, eb1), color=(0, 0, 0, 0), fill=(40, 40, 46, 255), parent=P)
-                if x1 - x0 > 130:
+                pts = self.loaded_pts
+                if pts and i == self.active:
+                    self._draw_ov_pts(pts, x0, x1, s, e, eb0, eb1, D, w, P)
+                elif x1 - x0 > 130:
                     dpg.draw_text((x0 + 8, hb0 + 12), "no flow computed", color=(150, 150, 156, 255), size=13, parent=P)
                 continue
             t, fs, spd = data["t"], data["fs"], data["spd"]
@@ -1545,7 +1594,7 @@ class App:
         return c(fx0), c(fy0), c(fx1), c(fy1)
 
     def mouse_px(self):
-        """Mouse position over the video in canvas pixels, or None if outside."""
+        """Mouse position over the video in canvas pixels, or None if outside the image."""
         if not dpg.is_item_hovered("vplot"):
             return None
         px, py = dpg.get_plot_mouse_pos()
@@ -1932,7 +1981,30 @@ class App:
             self.request_flow()
         else:
             self.status = "no flow computed"
+        self._show_loaded_pts()
         self.dirty_view = True
+
+    def _show_loaded_pts(self):
+        """Populate the funscript timeline series from the loaded script (fallback when there is no flow result)."""
+        if self.res is not None or self.loaded_pts is None:
+            return
+        if not dpg.does_item_exist("s_kf"):
+            return
+        kx = [p[0] / 1000.0 for p in self.loaded_pts]
+        ky = [float(p[1]) for p in self.loaded_pts]
+        dpg.set_value("s_kf", [kx, ky])
+        # Build continuous line by interpolating keyframes at ~30 fps
+        if kx:
+            t0, t1 = kx[0], kx[-1]
+            dur = self.src.dur if (self.src and self.src.dur < 1e8) else t1
+            t1 = max(t1, dur)
+            n = max(2, int((t1 - t0) * 30))
+            t_arr = np.linspace(t0, t1, n)
+            fs_arr = np.interp(t_arr, kx, ky)
+            dpg.set_value("s_fs", [t_arr.tolist(), fs_arr.tolist()])
+            span = max(t1 - t0, 1.0)
+            for i in range(5):
+                dpg.set_axis_limits(f"tx{i}", t0, t0 + min(span, 25.0))
 
     def activate(self, i, jump=True):
         if self.busy():
@@ -2119,7 +2191,8 @@ class App:
         for i, v in enumerate(vids):
             stem = os.path.splitext(v)[0]
             has_script = os.path.exists(stem + ".funscript")
-            has_cache = os.path.exists(stem + ".funscript.flowcache.npz")
+            has_cache = (os.path.exists(stem + ".funscript.flowcache.npz") or
+                         bool(glob.glob(stem + ".funscript.ch*.flowcache.npz")))
             try:
                 size_b = os.path.getsize(v)
                 size_str = (f"{size_b/1e9:.1f} GB" if size_b >= 1e9 else
@@ -2393,6 +2466,7 @@ class App:
     def apply_result(self):
         r, self.pending = self.pending, None
         self.res = r
+        self.loaded_pts = None   # flow result supersedes any loaded script
         self.dbg = r["dbg"]
         t = r["t"]
         tl = t.tolist()
@@ -2562,6 +2636,35 @@ class App:
             dpg.set_value("chap_axinfo", "active: " + txt)
         fl.put(img, txt, (10, 20), 0.4, (255, 220, 0))
 
+    def _update_vplot_letterbox(self):
+        """Expand axis limits around [0,CW]×[0,CH] so the image is letterboxed in the window."""
+        if not dpg.does_item_exist("vplot"):
+            return
+        size = dpg.get_item_rect_size("vplot")
+        if not size or len(size) < 2:
+            return
+        pw, ph = max(1, int(size[0])), max(1, int(size[1]))
+        if (pw, ph) == self.vplot_size:
+            return
+        self.vplot_size = (pw, ph)
+        aspect = pw / ph
+        img_aspect = CW / CH
+        if aspect >= img_aspect:
+            # Window wider: black bars on left/right
+            w = CH * aspect
+            mx = (w - CW) / 2.0
+            dpg.set_axis_limits("vx", -mx, CW + mx)
+            dpg.set_axis_limits("vy", 0, CH)
+        else:
+            # Window taller: black bars on top/bottom
+            h = CW / aspect
+            my = (h - CH) / 2.0
+            dpg.set_axis_limits("vx", 0, CW)
+            dpg.set_axis_limits("vy", -my, CH + my)
+        dpg.configure_item("vimg", bounds_min=[0, 0], bounds_max=[CW, CH])
+        self.vplot_rect = (0, 0, CW, CH)
+        self.dirty_view = True
+
     def render(self):
         if self.src is None:
             return
@@ -2657,6 +2760,7 @@ class App:
             dpg.set_value("bulk_text", txt + extra)
         dpg.configure_item("btn_cancel", show=self.flowing or self.bulk)
         self.handle_mouse()
+        self._update_vplot_letterbox()
         self.save_config()
         self.update_warning()
         self.handle_overview()
@@ -2703,6 +2807,8 @@ class App:
                 r = self.res
                 ti = self.frame_index()
                 dpg.set_value("t_label", f"{self.t:.2f} s   funscript {r['fs'][ti]:.0f}   sinal {r['pos'][ti]:.0f}   v {r['v'][ti]:+.2f}")
+            elif self.src is not None:
+                dpg.set_value("t_label", f"{self.t:.2f} s")
             if time.time() > self.drag_until:
                 for i in range(5):
                     dpg.set_value(f"ph{i}", self.t)

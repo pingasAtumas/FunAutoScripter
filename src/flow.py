@@ -430,6 +430,29 @@ def cache_path(a):
 _VALID = {}
 
 
+def read_cache_vr_zoom(a):
+    """Return the vr_zoom stored in the flow cache key, or 0.0 if not present / unreadable.
+    Checks the whole-video cache and, if absent, the first chapter cache."""
+    candidates = [cache_path(a)]
+    # check chapter caches if the main one is missing
+    import glob as _glob
+    candidates += sorted(_glob.glob(a.output + ".ch*.flowcache.npz"))
+    for cp in candidates:
+        try:
+            if not os.path.exists(cp):
+                continue
+            z = np.load(cp, allow_pickle=False)
+            key = json.loads(str(z["key"]))
+            # key: [version, size, sw, sh, width, cell, fps, crop, (opt vr_zoom), zoom, start, dur]
+            # vr_zoom is at index 8 when present (12 elements total)
+            if len(key) == 12 and isinstance(key[8], (int, float)):
+                return float(key[8])
+            return 0.0
+        except Exception:
+            continue
+    return 0.0
+
+
 def cache_valid(a):
     """Is there a valid cache for these parameters? Only reads the file, computes nothing."""
     try:

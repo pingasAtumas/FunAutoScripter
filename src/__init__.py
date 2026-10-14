@@ -1,7 +1,8 @@
 """FunAutoScripter engine — re-exports all public symbols."""
 from .flow import (log, probe, _probe, crop_filter, parse_zoom, CACHE_VERSION, cache_key,
                    decode_cmd, Cancelled, NoFlow, extract_flow, BACKEND, FIXED_THREADS,
-                   opencl_state, accel_report, pick_jobs, cache_path, cache_valid, load_or_extract)
+                   opencl_state, accel_report, pick_jobs, cache_path, cache_valid, load_or_extract,
+                   read_cache_vr_zoom)
 from .roi import (split_windows, periodicity_score, roi_size, choose_rois, AXIS_REFS, axis_vec,
                   chapter_axis)
 from .signal import (velocity, to_position, normalise, enhance, post_enhance, keyframes, compute)

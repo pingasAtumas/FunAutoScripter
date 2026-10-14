@@ -182,9 +182,9 @@ OV_BAND = 20                 # chapter band height within it
 CH_COLORS = [(70, 120, 200), (60, 170, 130), (190, 110, 60), (150, 90, 190), (180, 160, 60), (190, 80, 120)]
 # Dockable windows: (tag, title, open by default). The title is the key in the layout file,
 # so it must not be changed (otherwise windows reset to their initial position).
-WINDOWS = [("w_ctrl", "Control", True), ("w_video", "Video", True), ("w_ov", "Overview", True),
-           ("w_params", "Parameters", True), ("w_insp", "Inspector", True), ("w_tl", "Signals", True),
-           ("w_folder", "Folder Videos", False), ("w_status", "Status", False)]
+WINDOWS = [("w_ctrl", "Control", True), ("w_video", "Video", True), ("w_vidctrl", "Video Controls", True),
+           ("w_ov", "Overview", True), ("w_params", "Parameters", True), ("w_insp", "Inspector", True),
+           ("w_tl", "Signals", True), ("w_folder", "Folder Videos", False), ("w_status", "Status", False)]
 
 # Each theme starts from three colours (background, text, accent) and derives the rest from them.
 # head = headings, muted = secondary text, warn = warnings, fg = lines that must contrast with the background.

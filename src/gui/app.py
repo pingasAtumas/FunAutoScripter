@@ -510,6 +510,9 @@ class App:
         with dpg.theme() as self.th_vid_cached:
             with dpg.theme_component(dpg.mvSelectable):
                 dpg.add_theme_color(dpg.mvThemeCol_Text, (80, 160, 220, 255))
+        with dpg.theme() as self.th_vid_both:
+            with dpg.theme_component(dpg.mvSelectable):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, (200, 170, 50, 255))
 
         with dpg.file_dialog(directory_selector=False, show=False, callback=self.on_file, tag="dlg_file",
                              width=720, height=420, modal=True):
@@ -2101,7 +2104,7 @@ class App:
             self.txt("muted", "= script  ")
             dpg.add_text("[c]", color=(80, 160, 220))
             self.txt("muted", "= cache  ")
-            dpg.add_text("[c|s]", color=(80, 200, 80))
+            dpg.add_text("[c|s]", color=(200, 170, 50))
             self.txt("muted", "= both")
         with dpg.child_window(tag="vid_rows", height=-1, border=False):
             pass
@@ -2125,7 +2128,7 @@ class App:
                 size_str = ""
             basename = os.path.basename(v)
             if has_script and has_cache:
-                prefix, theme = "[c|s] ", self.th_vid_scripted
+                prefix, theme = "[c|s] ", self.th_vid_both
             elif has_script:
                 prefix, theme = "[s] ", self.th_vid_scripted
             elif has_cache:

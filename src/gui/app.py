@@ -2637,26 +2637,29 @@ class App:
         ms = f"   (recompute {self.compute_ms:.0f} ms)" if self.res is not None else ""
         self.set_fitted("status", "status_tip", self.status + ms)
         self.set_fitted("warn", "warn_tip", self.warn_text)
-        if self.res is None:
-            return
-        r = self.res
         loading = bool(self.src and self.src.loading)
         if dpg.does_item_exist("t_loading"):
             dpg.configure_item("t_loading", show=loading)
-        if self.playing:
+        if self.src is not None and self.playing:
             if not loading:
                 self.set_time(self.t + dt * self.speed)
-                if self.t >= r["t"][-1]:
+                end = self.res["t"][-1] if self.res is not None else (self.src.dur if self.src.dur < 1e8 else 1e9)
+                if self.t >= end:
                     self.playing = False
-        if self.dirty_view or self.playing:
+        if self.src is not None and (self.dirty_view or self.playing):
             self.dirty_view = False
-            ti = self.frame_index()
-            k = int(r["widx"][ti])
-            if k != self.cur_win:
-                self.cur_win = k
-                self.refresh_inspector(k)
+            if self.res is not None:
+                r = self.res
+                ti = self.frame_index()
+                k = int(r["widx"][ti])
+                if k != self.cur_win:
+                    self.cur_win = k
+                    self.refresh_inspector(k)
             self.render()
-            dpg.set_value("t_label", f"{self.t:.2f} s   funscript {r['fs'][ti]:.0f}   sinal {r['pos'][ti]:.0f}   v {r['v'][ti]:+.2f}")
+            if self.res is not None:
+                r = self.res
+                ti = self.frame_index()
+                dpg.set_value("t_label", f"{self.t:.2f} s   funscript {r['fs'][ti]:.0f}   sinal {r['pos'][ti]:.0f}   v {r['v'][ti]:+.2f}")
             if time.time() > self.drag_until:
                 for i in range(5):
                     dpg.set_value(f"ph{i}", self.t)

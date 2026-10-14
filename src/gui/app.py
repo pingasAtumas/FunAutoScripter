@@ -504,6 +504,12 @@ class App:
         with dpg.theme() as self.th_ok:
             with dpg.theme_component(dpg.mvButton):
                 pass
+        with dpg.theme() as self.th_vid_scripted:
+            with dpg.theme_component(dpg.mvSelectable):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, (80, 200, 80, 255))
+        with dpg.theme() as self.th_vid_cached:
+            with dpg.theme_component(dpg.mvSelectable):
+                dpg.add_theme_color(dpg.mvThemeCol_Text, (80, 160, 220, 255))
 
         with dpg.file_dialog(directory_selector=False, show=False, callback=self.on_file, tag="dlg_file",
                              width=720, height=420, modal=True):
@@ -2109,20 +2115,25 @@ class App:
                             f"{size_b/1e3:.0f} KB")
             except OSError:
                 size_str = ""
-            label = os.path.basename(v)
-            self.folder_items[label] = v
+            basename = os.path.basename(v)
+            if has_script:
+                prefix, theme = "[ok] ", self.th_vid_scripted
+            elif has_cache:
+                prefix, theme = "[~] ", self.th_vid_cached
+            else:
+                prefix, theme = "", 0
+            label = prefix + basename
+            self.folder_items[basename] = v
             with dpg.group(parent="vid_rows"):
                 with dpg.group(horizontal=True):
                     dpg.add_checkbox(tag=f"vc_{i}", default_value=(v in marked) if marked is not None else False,
                                      callback=lambda: self.update_bulk_text())
-                    dpg.add_selectable(label=label, tag=f"vs_{i}", callback=self.on_pick_row, user_data=v,
-                                       default_value=(v == self.a.video))
+                    sel = dpg.add_selectable(label=label, tag=f"vs_{i}", callback=self.on_pick_row, user_data=v,
+                                             default_value=(v == self.a.video))
+                    if theme:
+                        dpg.bind_item_theme(sel, theme)
                     dpg.add_text(size_str, color=self.pal["muted"])
                     dpg.add_text("—", tag=f"vd_{i}", color=self.pal["muted"])
-                    if has_script:
-                        dpg.add_text("[script]", color=(80, 200, 80))
-                    if has_cache:
-                        dpg.add_text("[cache]", color=(80, 160, 220))
                 dpg.add_progress_bar(tag=f"vp_{i}", default_value=0.0, width=-1, show=False, overlay="")
             self.rows.append(v)
         if dpg.does_item_exist("batch_ctrl"):

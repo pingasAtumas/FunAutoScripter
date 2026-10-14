@@ -800,11 +800,11 @@ class App:
     def build_video_panel(self):
         with dpg.child_window(height=-165, border=False):
             with dpg.plot(tag="vplot", width=-1, height=-1, no_title=True, no_menus=True,
-                          no_mouse_pos=True, no_box_select=True, equal_aspects=True):
+                          no_mouse_pos=True, no_box_select=True, equal_aspects=True, no_inputs=True):
                 dpg.add_plot_axis(dpg.mvXAxis, tag="vx", no_gridlines=True, no_tick_marks=True,
-                                  no_tick_labels=True, lock_min=True, lock_max=True)
+                                  no_tick_labels=True)
                 with dpg.plot_axis(dpg.mvYAxis, tag="vy", no_gridlines=True, no_tick_marks=True,
-                                   no_tick_labels=True, lock_min=True, lock_max=True):
+                                   no_tick_labels=True):
                     dpg.add_image_series("tex", [0, 0], [CW, CH], tag="vimg")
                 dpg.set_axis_limits("vx", 0, CW)
                 dpg.set_axis_limits("vy", 0, CH)

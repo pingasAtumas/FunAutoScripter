@@ -13,7 +13,7 @@ OVERLAYS = ("ly_roi", "ly_cand", "ly_heat", "ly_mag", "ly_per", "ly_axis")
 HEAT = [(0.0, (28, 38, 92)), (0.2, (36, 96, 200)), (0.45, (36, 190, 140)), (0.7, (240, 210, 60)), (1.0, (235, 60, 50))]
 
 
-def crop_rect(crop, zoom, sw, sh, use_zoom=True):
+def crop_rect(crop, zoom, sw, sh, use_zoom=True, vr_zoom=0.0):
     """Rectangle (x, y, w, h) of the original video that the engine analyses. Mirrors decode_cmd."""
     x, y, w, h = 0, 0, sw, sh
     spec = crop
@@ -27,6 +27,10 @@ def crop_rect(crop, zoom, sw, sh, use_zoom=True):
         y, h = sh // 2, sh // 2
     elif spec:
         w, h, x, y = (int(v) for v in spec.split(":"))
+    if vr_zoom and crop in ("left", "right", "top", "bottom"):
+        p = min(max(float(vr_zoom), 0.0), 0.49)
+        x, y = x + int(w * p), y + int(h * p)
+        w, h = max(2, int(w * (1 - 2 * p))), max(2, int(h * (1 - 2 * p)))
     if use_zoom and zoom:
         zx0, zy0, zx1, zy1 = fl.parse_zoom(zoom)
         x, y = x + int(w * zx0), y + int(h * zy0)

@@ -86,7 +86,7 @@ def cache_key(a, sw, sh):
     # Only things that change the flow itself belong here. If you add a stage 1
     # parameter, add it to this list, otherwise the cache goes stale silently.
     return json.dumps([CACHE_VERSION, os.path.getsize(a.video), sw, sh, a.width,
-                       a.cell, a.fps, a.crop, a.zoom, a.start, a.duration])
+                       a.cell, a.fps, a.crop, getattr(a, "vr_zoom", 0.0), a.zoom, a.start, a.duration])
 
 
 def decode_cmd(a, color=False):
@@ -100,6 +100,11 @@ def decode_cmd(a, color=False):
     cell = a.cell
     pix = "bgr24" if color else "gray"
     chain = [cf] if cf else []
+    vr_zoom = getattr(a, "vr_zoom", 0.0) or 0.0
+    if vr_zoom and a.crop in ("left", "right", "top", "bottom"):
+        p = min(max(float(vr_zoom), 0.0), 0.49)
+        chain.append(f"crop=iw*{1 - 2*p:.6f}:ih*{1 - 2*p:.6f}:iw*{p:.6f}:ih*{p:.6f}")
+        cw, ch = cw * (1 - 2 * p), ch * (1 - 2 * p)
     if a.zoom:
         # the 192 analysis pixels cover only this zone instead of the full frame
         zx0, zy0, zx1, zy1 = parse_zoom(a.zoom)

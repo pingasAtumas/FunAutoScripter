@@ -226,6 +226,7 @@ def build_parser():
     g.add_argument("--tb", action="store_true", help="top-bottom 3D/VR video: analyse one half only (top by default, see --eye)")
     g.add_argument("--eye", choices=["left", "right"], default="left", help="half to analyse with --sbs or --tb (left = left or top, right = right or bottom)")
     g.add_argument("--zoom", metavar="X0:Y0:X1:Y1", help="analyse only this zone, as fractions of the frame (after --crop/--sbs/--tb), using the full analysis width. For subtle motion: see the .roi.png from --plot and set the zone where it occurs. --region becomes relative to this zone")
+    g.add_argument("--vr-zoom", type=float, default=0.0, metavar="FRACTION", dest="vr_zoom", help="VR edge crop: fraction (0.0–0.5) to trim from each edge after --sbs/--tb, before --zoom. Removes fisheye distortion at the edges. E.g. 0.1 trims 10%% from each side.")
     g.add_argument("--fps", type=int, default=30, help="analysis frame rate")
     g.add_argument("--width", type=int, default=192, help="analysis width in pixels")
     g.add_argument("--cell", type=int, default=12, help="grid cell size in pixels")

@@ -132,6 +132,7 @@ TIPS_UI = {
     "b_sel_apply": "Applies the drawn rectangle as region or zoom.",
     "b_sel_clear": "Clears the region, zoom or chapter direction, depending on the current mode.",
     "p_crop": "For 3D or VR videos, analyses only one half.",
+    "p_vr_zoom": "Trims this percentage from each edge of the VR half to remove fisheye distortion. Stacks with per-chapter zoom. Triggers flow recalculation.",
     "p_live": "On: sliders recalculate while dragging. Off: sliders only change the value and calculation happens on Apply Changes (Enter).",
     "btn_apply": "Apply pending parameter changes.  Shortcut: Enter",
     "chap_inv": "Inverts only this chapter (key I). Saved to .chapters.json.",

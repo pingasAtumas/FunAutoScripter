@@ -152,6 +152,9 @@ class App:
         name = self.cfg.get("crop")
         if name in CROPS:
             self.a.crop = CROPS[name]
+        vz = self.cfg.get("vr_zoom", 0.0)
+        if isinstance(vz, (int, float)):
+            self.a.vr_zoom = min(max(float(vz), 0.0), 0.5)
 
     def apply_ui_config(self):
         """Restores widget-only state (overlays, follow cursor, speed, crop)."""
@@ -170,6 +173,8 @@ class App:
         name = c.get("crop")
         if name in CROPS:
             dpg.set_value("p_crop", name)
+        if isinstance(c.get("vr_zoom"), (int, float)):
+            dpg.set_value("p_vr_zoom", int(round(float(c["vr_zoom"]) * 100)))
 
     def snapshot_config(self):
         a = self.a
@@ -177,6 +182,7 @@ class App:
         return {
             "params": {attr: getattr(a, attr) for _, attr, *_ in PARAMS},
             "crop": crop_name,
+            "vr_zoom": getattr(a, "vr_zoom", 0.0),
             "overlays": {t: bool(dpg.get_value(t)) for t in OVERLAYS},
             "follow": bool(dpg.get_value("follow")),
             "follow_w": float(dpg.get_value("follow_w")),
@@ -217,7 +223,8 @@ class App:
     # ------------------------------------------------ stale flow detection
     @staticmethod
     def flow_sig(a):
-        return {"crop": a.crop, "zoom": a.zoom, "width": a.width, "cell": a.cell, "fps": a.fps}
+        return {"crop": a.crop, "zoom": a.zoom, "vr_zoom": getattr(a, "vr_zoom", 0.0),
+                "width": a.width, "cell": a.cell, "fps": a.fps}
 
     def cache_ok(self):
         """Is there a cached flow that matches current settings? (If so, opening the video is instant.)"""
@@ -228,14 +235,15 @@ class App:
 
     def geometry_stale(self):
         """The selected crop or zoom no longer matches the computed flow."""
-        return self.sig is not None and (self.sig["crop"] != self.a.crop or self.sig["zoom"] != self.a.zoom)
+        return self.sig is not None and (self.sig["crop"] != self.a.crop or self.sig["zoom"] != self.a.zoom
+                                         or self.sig.get("vr_zoom", 0.0) != getattr(self.a, "vr_zoom", 0.0))
 
     def stale_reasons(self):
         if self.sig is None:
             return []
         now = self.flow_sig(self.a)
-        names = {"crop": "3D/VR crop", "zoom": "zoom", "width": "analysis width",
-                 "cell": "cell size", "fps": "analysis fps"}
+        names = {"crop": "3D/VR crop", "vr_zoom": "VR edge crop", "zoom": "zoom",
+                 "width": "analysis width", "cell": "cell size", "fps": "analysis fps"}
         return [names[k] for k in names if now[k] != self.sig[k]]
 
     # ------------------------------------------------------------------ background worker
@@ -820,6 +828,10 @@ class App:
     def build_params(self):
         dpg.add_text("3D/VR Crop")
         dpg.add_combo(list(CROPS), default_value=next((k for k, v in CROPS.items() if v == self.a.crop), "full video"), width=200, tag="p_crop", callback=self.on_crop)
+        is_vr = self.a.crop in ("left", "right", "top", "bottom")
+        dpg.add_slider_int(label="VR edge crop %", tag="p_vr_zoom", min_value=0, max_value=50,
+                           default_value=int(round(getattr(self.a, "vr_zoom", 0.0) * 100)),
+                           width=170, show=is_vr, callback=self.on_vr_zoom)
         with dpg.group(horizontal=True):
             dpg.add_checkbox(label="recalculate while dragging", tag="p_live", default_value=bool(self.cfg.get("live", True)),
                              callback=lambda s, v: self.on_live(v))
@@ -1459,6 +1471,12 @@ class App:
 
     def on_crop(self, sender, value):
         self.a.crop = CROPS[value]
+        is_vr = self.a.crop in ("left", "right", "top", "bottom")
+        dpg.configure_item("p_vr_zoom", show=is_vr)
+        self.dirty_view = True
+
+    def on_vr_zoom(self, sender, value):
+        self.a.vr_zoom = value / 100.0
         self.dirty_view = True
 
     def on_speed(self, sender, value):
@@ -1474,7 +1492,7 @@ class App:
 
     def frame_step(self, n):
         """Left and right arrow keys: one frame back or forward (signals follow the cursor)."""
-        if self.res is None:
+        if self.src is None:
             return
         self.scrub_to(self.t + n / self.fps())
 
@@ -2527,7 +2545,7 @@ class App:
         ci = self.chapter_at(self.t)
         zoom_now = a.zoom if ci == self.active else self.chapters[ci]["zoom"]
         x, y, w, h = crop_rect(a.crop, zoom_now, self.src.sw, self.src.sh,
-                               use_zoom=not zoom_mode)
+                               use_zoom=not zoom_mode, vr_zoom=getattr(a, "vr_zoom", 0.0))
         frame = self.src.get(self.t)
         if frame is None:
             return

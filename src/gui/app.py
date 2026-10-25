@@ -1052,18 +1052,34 @@ class App:
         self._update_timeline_axis()
 
     def _update_timeline_axis(self):
-        """Switch the script timeline between primary and secondary axis."""
+        """Switch all timeline series between primary and secondary axis."""
         r = self.res
         if r is None:
             return
         dual = getattr(self.a, "dual_axis", False)
-        if dual and self.show_axis == "secondary" and len(r.get("kx2", [])):
+        sec = dual and self.show_axis == "secondary" and r.get("v2") is not None
+        tl = r["t"].tolist()
+        if sec:
             kx, ky, fs = r["kx2"], r["ky2"], r["fs2"]
+            v   = r["v2"]
+            p   = r.get("p2", r["p"])
+            raw = np.cumsum(r["v2"])
+            pos = r.get("pos2", r["pos"])
         else:
             kx, ky, fs = r["kx"], r["ky"], r["fs"]
-        dpg.set_value("s_kf", [kx.tolist(), ky.tolist()])
-        dpg.set_value("s_fs", [r["t"].tolist(), fs.tolist()])
-        axis_id = getattr(self.a, "axis2_id", "L2") if (dual and self.show_axis == "secondary") else getattr(self.a, "axis_id", "L0")
+            v, p, raw, pos = r["v"], r["p"], r["raw"], r["pos"]
+        dpg.set_value("s_kf",  [kx.tolist(), ky.tolist()])
+        dpg.set_value("s_fs",  [tl, fs.tolist()])
+        dpg.set_value("s_v",   [tl, v.tolist()])
+        dpg.set_value("s_p",   [tl, p.tolist()])
+        dpg.set_value("s_raw", [tl, raw.tolist()])
+        dpg.set_value("s_pos", [tl, pos.tolist()])
+        invert = (getattr(self.a, "dual_axis_invert", False) if sec else self.eff_invert())
+        up = "0" if invert else "100"
+        dpg.configure_item("s_v",   label=f"velocity (+ = {up})")
+        dpg.configure_item("s_p",   label=f"filtered (+ = {up})")
+        dpg.configure_item("s_raw", label=f"raw (+ = {up})")
+        axis_id = getattr(self.a, "axis2_id", "L2") if sec else getattr(self.a, "axis_id", "L0")
         suffix = fl.AXIS_SUFFIX.get(axis_id, "")
         label = f"({axis_id} – {suffix})" if suffix else f"({axis_id} – stroke)"
         dpg.set_value("ax_view_label", label)
@@ -1423,6 +1439,12 @@ class App:
     # ---------------------------------------------------------- callbacks
     def on_file(self, sender, app_data):
         path = app_data.get("file_path_name") or ""
+        if not os.path.isfile(path):
+            # DPG appends the active filter extension to file_path_name (e.g. "video.mp4.*"),
+            # so the path is invalid. The selections dict always has the real path.
+            sels = app_data.get("selections") or {}
+            if sels:
+                path = next(iter(sels.values()), path)
         if path:
             self.open_path(path)
 

@@ -5,7 +5,7 @@ from .flow import (log, probe, _probe, crop_filter, parse_zoom, CACHE_VERSION, c
                    read_cache_vr_zoom)
 from .roi import (split_windows, periodicity_score, roi_size, choose_rois, AXIS_REFS, axis_vec,
                   chapter_axis)
-from .signal import (velocity, to_position, normalise, enhance, post_enhance, keyframes, compute)
+from .signal import (velocity, to_position, normalise, enhance, post_enhance, keyframes, compute, build_a2)
 from .output import write_funscript, plot, AXIS_SUFFIX, axis2_path
 from .debug import (PALETTE, FONT, put, box, bar, VideoOut, draw_plot, DEBUG_VIDEOS, DEBUG_ALIASES,
                     parse_debug_videos, render_debug)

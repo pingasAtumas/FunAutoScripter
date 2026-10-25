@@ -2,6 +2,21 @@
 import copy
 
 import numpy as np
+
+_A2_ATTRS = ("hp2", "hfboost", "hf_freq", "renorm", "renorm_floor",
+             "smooth", "boost", "gain", "offset",
+             "highpass", "lowpass", "norm_window", "floor",
+             "min_amp", "min_interval", "max_speed")
+
+
+def build_a2(a):
+    """Return axis-2 args with independent signal settings, or None when linked to axis 1."""
+    if not getattr(a, "dual_axis", False) or getattr(a, "a2_link", True):
+        return None
+    b = copy.copy(a)
+    for attr in _A2_ATTRS:
+        setattr(b, attr, getattr(a, f"a2_{attr}", getattr(a, attr)))
+    return b
 from scipy.ndimage import gaussian_filter1d
 from scipy.signal import butter, sosfiltfilt, find_peaks
 
@@ -156,11 +171,13 @@ def keyframes(pos, fps, a):
     return res
 
 
-def compute(a, dx, dy, mag, dbg=None):
+def compute(a, dx, dy, mag, dbg=None, a2=None):
     """Steps 2 to 7 (fast): from the computed flow to keyframes.
 
     Writes nothing, so it works for both the CLI and the GUI.
     When a.dual_axis is True, also returns v2/p2/pos2/pts2 for the perpendicular axis.
+    a2: optional separate args for the secondary axis (signal/enhancement/keyframe params only).
+        None means use the same settings as a.
     """
     fps = a.fps
     bounds = [0, len(mag)]
@@ -173,11 +190,12 @@ def compute(a, dx, dy, mag, dbg=None):
     pts = keyframes(pos, fps, a)
     out = {"v": v, "p": p, "pos": pos, "pts": pts, "windows": windows, "rois": rois, "grid": grid}
     if v2 is not None:
-        p2 = to_position(v2, fps, a)
-        ps2 = gaussian_filter1d(p2, a.smooth * fps) if a.smooth > 0 else p2
-        pos2 = enhance(post_enhance(normalise(ps2, fps, a), fps, a), a)
+        b = a2 if a2 is not None else a
+        p2 = to_position(v2, fps, b)
+        ps2 = gaussian_filter1d(p2, b.smooth * fps) if b.smooth > 0 else p2
+        pos2 = enhance(post_enhance(normalise(ps2, fps, b), fps, b), b)
         if getattr(a, "dual_axis_invert", False):
             pos2 = 100 - pos2
-        pts2 = keyframes(pos2, fps, a)
+        pts2 = keyframes(pos2, fps, b)
         out.update({"v2": v2, "p2": p2, "pos2": pos2, "pts2": pts2})
     return out

@@ -357,7 +357,7 @@ class App:
         dx, dy, mag = self.worker_flow
         t0 = time.time()
         dbg = []
-        r = fl.compute(a, dx, dy, mag, dbg)
+        r = fl.compute(a, dx, dy, mag, dbg, a2=fl.build_a2(a))
         self.pending = self.derive(a, r, dbg, mag)
         self.compute_ms = (time.time() - t0) * 1000.0
         elapsed = time.time() - self.prog_t0
@@ -951,9 +951,14 @@ class App:
         OPEN_GROUPS = {"Enhancement", "Region", "Signal", "Keyframes"}
         for grp, specs in groups.items():
             tag_hdr = "phdr_" + grp.lower().replace(" ", "_").replace("(", "").replace(")", "")
-            with dpg.collapsing_header(label=grp, default_open=(grp in OPEN_GROUPS), tag=tag_hdr):
+            initially_hidden = grp == "Axis 2"
+            with dpg.collapsing_header(label=grp, default_open=(grp in OPEN_GROUPS), tag=tag_hdr,
+                                       show=not initially_hidden):
                 if grp == "Auto Chapters":
                     self.txt("muted", AUTO_HELP, wrap=0)
+                if grp == "Axis 2":
+                    self.txt("muted", "Independent signal settings for the perpendicular axis.\n"
+                             "Only active when 'same settings as axis 1' is unchecked.", wrap=0)
                 for spec in specs:
                     grp_, attr, label, kind, lo, hi, fmt, stage = spec
                     val = getattr(self.a, attr)
@@ -1500,6 +1505,12 @@ class App:
         if cb:
             cb(tag, new_val)
 
+    def _refresh_a2_visibility(self):
+        dual = getattr(self.a, "dual_axis", False)
+        link = getattr(self.a, "a2_link", True)
+        if dpg.does_item_exist("phdr_axis_2"):
+            dpg.configure_item("phdr_axis_2", show=(dual and not link))
+
     def on_param(self, value, user):
         attr, kind, stage = user
         if kind == "int" or attr == "fps":
@@ -1507,6 +1518,8 @@ class App:
         elif kind == "float":
             value = float(value)
         setattr(self.a, attr, value)
+        if attr in ("dual_axis", "a2_link"):
+            self._refresh_a2_visibility()
         if attr in PARAM_BY_ATTR and attr in PRESET_ATTRS:
             self.refresh_diff()
         if stage == "c":

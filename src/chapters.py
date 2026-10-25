@@ -8,7 +8,7 @@ import numpy as np
 
 from .flow import log, probe, cache_path, cache_key, cache_valid, load_or_extract
 from .roi import choose_rois, chapter_axis
-from .signal import compute, velocity, to_position, normalise, enhance, post_enhance, keyframes
+from .signal import compute, build_a2, velocity, to_position, normalise, enhance, post_enhance, keyframes
 from .output import write_funscript
 
 
@@ -160,7 +160,7 @@ def process_chapters(a, chs, progress=None):
         dx, dy, mag = flow_for(b, progress)
         if len(mag) < 2:
             continue
-        r = compute(b, dx, dy, mag)
+        r = compute(b, dx, dy, mag, a2=build_a2(b))
         end_ms = (chs[i + 1]["start"] * 1000.0) if i + 1 < len(chs) else float("inf")
         pts += [(t, p) for t, p in r["pts"] if t < end_ms]
         if dual and "pts2" in r:

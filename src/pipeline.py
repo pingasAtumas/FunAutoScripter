@@ -10,7 +10,7 @@ import cv2
 import numpy as np
 
 from .flow import log, load_or_extract, accel_report, Cancelled, NoFlow, BACKEND, FIXED_THREADS
-from .signal import compute
+from .signal import compute, build_a2
 from .output import write_funscript, plot, axis2_path
 from .debug import render_debug, parse_debug_videos
 from .chapters import (chapters_file, load_chapters, chapter_args, limit_speed, load_full,
@@ -55,7 +55,7 @@ def process(a, progress=None):
     dx, dy, mag = load_flow()
     fps = a.fps
     dbg = [] if a.debug else None
-    r = compute(a, dx, dy, mag, dbg)
+    r = compute(a, dx, dy, mag, dbg, a2=build_a2(a))
     v, p, pos, pts = r["v"], r["p"], r["pos"], r["pts"]
     pts2 = r.get("pts2")
     windows, rois, grid = r["windows"], r["rois"], r["grid"]
@@ -290,6 +290,24 @@ def build_parser():
     g.add_argument("--axis-id", default="L0", choices=["L0","L1","L2","R0","R1","R2"], help="TCode axis for the primary script (label only, does not change analysis)")
     g.add_argument("--axis2-id", default="L2", choices=["L0","L1","L2","R0","R1","R2"], help="TCode axis for the perpendicular script")
     g.add_argument("--dual-axis-invert", action="store_true", help="invert the perpendicular (secondary) axis")
+    g.add_argument("--a2-link", action="store_true", default=True, help="secondary axis uses the same signal settings as the primary (default)")
+    g.add_argument("--no-a2-link", action="store_false", dest="a2_link", help="use separate signal settings for the secondary axis")
+    g.add_argument("--a2-hp2", type=float, default=0.0)
+    g.add_argument("--a2-hfboost", type=float, default=0.0)
+    g.add_argument("--a2-hf-freq", type=float, default=1.5)
+    g.add_argument("--a2-renorm", type=float, default=0.0)
+    g.add_argument("--a2-renorm-floor", type=float, default=0.15)
+    g.add_argument("--a2-smooth", type=float, default=0.0)
+    g.add_argument("--a2-boost", type=float, default=1.0)
+    g.add_argument("--a2-gain", type=float, default=1.0)
+    g.add_argument("--a2-offset", type=float, default=0.0)
+    g.add_argument("--a2-highpass", type=float, default=0.15)
+    g.add_argument("--a2-lowpass", type=float, default=5.0)
+    g.add_argument("--a2-norm-window", type=float, default=10.0)
+    g.add_argument("--a2-floor", type=float, default=0.35)
+    g.add_argument("--a2-min-amp", type=float, default=12.0)
+    g.add_argument("--a2-min-interval", type=float, default=0.12)
+    g.add_argument("--a2-max-speed", type=float, default=450.0)
     g.add_argument("--hp2", type=float, default=0.0, help="Hz: cut low frequencies from the already-scaled funscript (0 = off). Removes slow oscillation and keeps fast strokes")
     g.add_argument("--hfboost", type=float, default=0.0, help="boost high frequencies above --hf-freq (0 = off, 1 = double the amplitude of fast strokes relative to slow ones)")
     g.add_argument("--hf-freq", type=float, default=1.5, help="Hz: where the --hfboost enhancement begins")

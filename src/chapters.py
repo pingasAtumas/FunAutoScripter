@@ -58,7 +58,8 @@ def load_chapters(source, video=None):
                         "invert": (get(3) or "").lower() in ("i", "inv", "1", "true"),
                         "axis_ref": get(4)})
     chs = sorted(({"start": float(c.get("start", 0)), "zoom": c.get("zoom") or None, "region": c.get("region") or None,
-                   "invert": bool(c.get("invert")), "axis_ref": c.get("axis_ref") or None,
+                   "invert": bool(c.get("invert")), "excluded": bool(c.get("excluded")),
+                   "axis_ref": c.get("axis_ref") or None,
                    "axis": c.get("axis") or None, "axis_angle": c.get("axis_angle"),
                    "why": c.get("why") or None}
                   for c in raw), key=lambda c: c["start"])
@@ -159,6 +160,9 @@ def process_chapters(a, chs, progress=None):
     pts, pts2 = [], []
     dual = getattr(a, "dual_axis", False)
     for i in range(len(chs)):
+        if chs[i].get("excluded"):
+            log(f"chapter {i + 1}/{len(chs)}: excluded from save")
+            continue
         b = chapter_args(a, chs, i)
         log(f"chapter {i + 1}/{len(chs)}: from {b.start:.1f}s, zoom {b.zoom or 'none'}, "
             f"100 towards {b.axis_ref}")

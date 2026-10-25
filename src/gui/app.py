@@ -923,6 +923,8 @@ class App:
         self.txt("muted", "Without the checkbox, sliders only change the value and calculation happens on the button.", wrap=0)
         dpg.add_checkbox(label="invert this chapter", tag="chap_inv", callback=self.on_chap_invert)
         self.txt("muted", "To correct the direction at the end. Saved to the video's .chapters.json.", wrap=0)
+        dpg.add_checkbox(label="exclude from Save", tag="chap_excl", callback=self.on_chap_exclude)
+        self.txt("muted", "Chapter contributes no keyframes when saving. Flow cache is kept.", wrap=0)
         self.txt("head", "Chapter direction (axis-ref)")
         dpg.add_combo(AXMODES, tag="chap_axmode", default_value=AXMODES[0], width=200)
         dpg.add_slider_int(label="angle (°)", tag="chap_ang", default_value=90, min_value=0, max_value=359, width=170)
@@ -2026,7 +2028,8 @@ class App:
         if len(self.chapters) > 1:
             self.sync_chapter()
             missing = [str(i + 1) for i in range(len(self.chapters))
-                     if not fl.flow_available(fl.chapter_args(self.a, self.chapters, i))]
+                     if not self.chapters[i].get("excluded")
+                     and not fl.flow_available(fl.chapter_args(self.a, self.chapters, i))]
             if missing:
                 self.status = "missing flow for chapters " + ", ".join(missing) + ': use "Compute flow for all chapters"'
                 return
@@ -2130,6 +2133,13 @@ class App:
         self.write_chapters_file()
         self.refresh_chapters()
         self.request_compute()
+
+    def on_chap_exclude(self, sender, value):
+        if not self.a.video:
+            return
+        self.chapters[self.active]["excluded"] = bool(value)
+        self.write_chapters_file()
+        self.refresh_chapters()
 
     @staticmethod
     def ref_text(ref):
@@ -2242,12 +2252,14 @@ class App:
             b = fl.chapter_args(self.a, self.chapters, i) if self.a.video else None
             ok = bool(b) and fl.flow_available(b)
             ax_tag = (f"  axis:{c['axis']}" + (f"@{c['axis_angle']:.0f}°" if c.get("axis_angle") is not None else "")) if c.get("axis") else ""
-            tags = ("100 -> " + self.ref_text(c["axis_ref"]) + "  " if c.get("axis_ref") else "") + ("zoom" if c["zoom"] else "no zoom") + (" + region" if c["region"] else "") + (" + inverted" if c.get("invert") else "") + ax_tag + ("  [flow ok]" if ok else "")
+            tags = ("100 -> " + self.ref_text(c["axis_ref"]) + "  " if c.get("axis_ref") else "") + ("zoom" if c["zoom"] else "no zoom") + (" + region" if c["region"] else "") + (" + inverted" if c.get("invert") else "") + (" [excluded]" if c.get("excluded") else "") + ax_tag + ("  [flow ok]" if ok else "")
             items.append(f"{i + 1}. {fmt_time(c['start'])} a {fmt_time(end)}  {tags}")
         self.chap_items = items
         dpg.configure_item("chap_list", items=items, num_items=min(max(len(items), 2), 6))
         dpg.set_value("chap_list", items[self.active])
         dpg.set_value("chap_inv", bool(self.chapters[self.active].get("invert")))
+        if dpg.does_item_exist("chap_excl"):
+            dpg.set_value("chap_excl", bool(self.chapters[self.active].get("excluded")))
         ar = self.chapters[self.active].get("axis_ref")
         try:
             float(ar)

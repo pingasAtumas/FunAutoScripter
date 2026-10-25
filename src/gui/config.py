@@ -28,7 +28,8 @@ PARAMS = [
     ("Region", "switch", "switch (--switch)", "float", 0.0, 3.0, "%.2f", "c"),
     ("Region", "period_weight", "periodicity weight", "float", 0.0, 1.0, "%.2f", "c"),
     ("Region", "candidates", "candidates (inspector)", "int", 3, 12, "%d", "c"),
-    ("Region", "axis", "axis", "combo", None, ["auto", "y"], None, "c"),
+    ("Region", "axis", "axis", "combo", None, ["auto", "y", "angle"], None, "c"),
+    ("Region", "axis_angle", "angle (degrees)", "float", 0.0, 360.0, "%.1f", "c"),
     ("Region", "axis_ref", "100 points to", "combo", None, ["chapter", "down", "up", "left", "right", "auto"], None, "c"),
     ("Region", "axis_margin", "direction margin", "float", 0.0, 0.9, "%.2f", "c"),
     ("Region", "noise", "noise (px/frame)", "float", 0.0, 0.3, "%.3f", "c"),
@@ -100,7 +101,8 @@ TIPS = {
     "switch": "The new region must score this many times more than the current one to replace it. Higher means the region changes less.",
     "period_weight": "0 picks the region by motion alone, 1 by periodicity (rhythmic back-and-forth) alone.",
     "candidates": "Number of region candidates evaluated and shown per window. Higher = more thorough but slower region selection.",
-    "axis": "auto follows the principal direction of motion. y uses only the vertical axis.",
+    "axis": "auto follows the principal direction of motion (PCA). y forces vertical. angle locks the axis to a fixed screen angle set by the slider below.",
+    "axis_angle": "Forced axis angle in screen degrees (0 = right, 90 = down, 180 = left, 270 = up). Only used when axis = angle.",
     "axis_ref": "Which end of the axis is 100. chapter uses the chapter's dominant direction, down/up/left/right fix a screen direction, auto only follows the previous window. Each chapter can have its own.",
     "axis_margin": "If a window's axis is nearly perpendicular to the reference (cosine below this), the direction is ambiguous and follows the previous window.",
     "noise": "Optical flow noise floor, in pixels per frame. Values below this are ignored.",
@@ -220,6 +222,7 @@ CROPS = {"full video": None, "SBS, left half": "left", "SBS, right half": "right
          "TB, top half": "top", "TB, bottom half": "bottom"}
 
 OV_H = 96                    # height of the overview timeline
+OV_H2 = 66                   # height of the axis-2 overview strip
 OV_BAND = 20                 # chapter band height within it
 CH_COLORS = [(70, 120, 200), (60, 170, 130), (190, 110, 60), (150, 90, 190), (180, 160, 60), (190, 80, 120)]
 # Dockable windows: (tag, title, open by default). The title is the key in the layout file,

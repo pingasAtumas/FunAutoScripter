@@ -14,7 +14,7 @@ import funautoscripter as fl
 from src.gui.utils import (crop_rect, fmt_time, mix, line_theme, make_theme, heat_rgb, hue_rgb,
                             nice_step, layout_path, config_path, load_config, OVERLAYS, HEAT)
 from src.gui.config import (CW, CH, MAXC, PALETTE_RGB, PARAMS, TIPS, TIPS_UI, AUTO_HELP, AXMODES,
-                             CROPS, OV_H, OV_BAND, CH_COLORS, WINDOWS, THEMES, DEFAULT_THEME,
+                            CROPS, OV_H, OV_BAND, CH_COLORS, WINDOWS, THEMES, DEFAULT_THEME,
                              PRESET_ATTRS, PARAM_BY_ATTR, BUILTIN_PRESETS, presets_path,
                              clean_param, load_user_presets)
 from src.gui.frame_source import FrameSource
@@ -34,7 +34,7 @@ class App:
         self.alive = True
         self.a = fl.build_parser().parse_args(["_"])        # default values only
         self.a.video = None
-        self.defaults = {k: getattr(self.a, k) for k in PRESET_ATTRS}
+        self.defaults = {p[1]: getattr(self.a, p[1], None) for p in PARAMS if hasattr(self.a, p[1])}
         self.user_presets = load_user_presets()
         self.cfg = load_config()
         self.load_params()
@@ -113,6 +113,9 @@ class App:
         self.frame = 0
         self.ov_other = {}
         self.ov_res_key = None
+        self.ov_other2 = {}
+        self.ov_res2_key = None
+        self.ov_res2_val = None
         self.prog_prefix, self.prog_t0 = "", time.time()
         self.accel_lines = None
         self.preset_ref = self.cfg.get("preset_ref", "Default")
@@ -352,9 +355,16 @@ class App:
         for k, v in self.worker_sig.items():     # stored flow parameters take precedence
             setattr(a, k, v)
         a.invert = self.eff_invert()              # the active chapter's invert flag applies here
-        if self.chapters[self.active].get("axis_ref"):
-            a.axis_ref = str(self.chapters[self.active]["axis_ref"])   # and its axis-ref too
+        c = self.chapters[self.active]
+        if c.get("axis_ref"):
+            a.axis_ref = str(c["axis_ref"])
+        if c.get("axis") is not None:
+            a.axis = str(c["axis"])
+            if c["axis"] == "angle" and c.get("axis_angle") is not None:
+                a.axis_angle = float(c["axis_angle"])
         dx, dy, mag = self.worker_flow
+        if getattr(a, "axis", "auto") == "angle":
+            a.axis = str(float(getattr(a, "axis_angle", 90.0)))
         t0 = time.time()
         dbg = []
         r = fl.compute(a, dx, dy, mag, dbg, a2=fl.build_a2(a))
@@ -736,10 +746,12 @@ class App:
         """Hover tooltip for each element (parameters and buttons)."""
         tips = {"p_" + k: v for k, v in TIPS.items()}
         tips.update(TIPS_UI)
+        param_tags = {"p_" + p[1] for p in PARAMS}
         for tag, text in tips.items():
             if dpg.does_item_exist(tag):
+                body = text
                 with dpg.tooltip(tag):
-                    dpg.add_text(text, wrap=340)
+                    dpg.add_text(body, wrap=340)
 
     # ------------------------------------------------ menu, windows, theme, layout
     def build_menu(self, shown):
@@ -918,6 +930,13 @@ class App:
             dpg.add_button(label="Apply direction", tag="btn_apply_axis", callback=lambda: self.apply_chap_axis())
             dpg.add_button(label="Draw on video", tag="b_axis_draw", callback=lambda: self.set_mode("axis"))
         self.txt("muted", "", tag="chap_axinfo", wrap=0)
+        self.txt("head", "Chapter axis")
+        dpg.add_combo(["inherit", "auto", "y", "angle"], tag="chap_axis", default_value="inherit", width=130,
+                      callback=lambda s, v: dpg.configure_item("chap_axis_ang", show=(v == "angle")))
+        dpg.add_slider_float(label="angle (°)", tag="chap_axis_ang", default_value=90.0, min_value=0.0, max_value=360.0,
+                             format="%.1f", width=170, show=False)
+        dpg.add_button(label="Apply axis", tag="btn_apply_chap_axis", callback=lambda: self.apply_chap_axis_mode())
+        self.txt("muted", "inherit = use the global axis setting from the parameters panel.", wrap=0)
         dpg.add_separator()
         self.txt("head", "Presets")
         dpg.add_combo(self.preset_names(), tag="p_preset", width=200, default_value=self.preset_ref, callback=self.on_preset)
@@ -965,16 +984,22 @@ class App:
                     val = getattr(self.a, attr)
                     cb = self.make_cb((attr, kind, stage))
                     tag = "p_" + attr
-                    if kind == "float":
-                        dpg.add_slider_float(label=label, tag=tag, default_value=float(val), min_value=lo, max_value=hi,
-                                             format=fmt, callback=cb, width=170)
-                    elif kind == "int":
-                        dpg.add_slider_int(label=label, tag=tag, default_value=int(val), min_value=lo, max_value=hi,
-                                           callback=cb, width=170)
-                    elif kind == "bool":
-                        dpg.add_checkbox(label=label, tag=tag, default_value=bool(val), callback=cb)
-                    else:
-                        dpg.add_combo(hi, label=label, tag=tag, default_value=str(val), callback=cb, width=170)
+                    show = (attr != "axis_angle" or getattr(self.a, "axis", "auto") == "angle")
+                    with dpg.group(horizontal=True, show=show, tag=f"pg_{attr}"):
+                        btn = dpg.add_button(label="R", width=18, tag=f"rb_{attr}",
+                                            callback=self._on_reset_btn, user_data=attr)
+                        with dpg.tooltip(btn):
+                            dpg.add_text("Reset to preset value")
+                        if kind == "float":
+                            dpg.add_slider_float(label=label, tag=tag, default_value=float(val), min_value=lo, max_value=hi,
+                                                 format=fmt, callback=cb, width=160)
+                        elif kind == "int":
+                            dpg.add_slider_int(label=label, tag=tag, default_value=int(val), min_value=lo, max_value=hi,
+                                               callback=cb, width=160)
+                        elif kind == "bool":
+                            dpg.add_checkbox(label=label, tag=tag, default_value=bool(val), callback=cb)
+                        else:
+                            dpg.add_combo(hi, label=label, tag=tag, default_value=str(val), callback=cb, width=160)
         dpg.add_separator()
         dpg.add_text("Save")
         dpg.add_input_text(tag="out_path", width=-1)
@@ -1105,6 +1130,9 @@ class App:
                           if self.cfg.get("ov_mode") in self.OV_MODES else "velocity", width=130,
                           tag="ov_mode", callback=lambda s, v: self.on_ov_mode())
             self.txt("muted", self.OV_MODES[dpg.get_value("ov_mode")], tag="ov_legend")
+            self.txt("muted", "  axis", tag="ov_axis_label", show=False)
+            dpg.add_combo(["Axis 1", "Axis 2"], default_value="Axis 1", width=80,
+                          tag="ov_axis", show=False, callback=lambda s, v: self.mark_ov())
             help_item = self.txt("head", "(?)")
             with dpg.tooltip(help_item):
                 dpg.add_text("velocity: how fast the funscript moves.\n"
@@ -1132,16 +1160,21 @@ class App:
         dpg.set_value("ov_legend", self.OV_MODES[dpg.get_value("ov_mode")])
         self.ov_dirty = True
 
+    def ov_axis2_selected(self):
+        return (dpg.does_item_exist("ov_axis") and dpg.get_value("ov_axis") == "Axis 2"
+                and getattr(self.a, "dual_axis", False))
+
     def ov_segments(self):
         """Per chapter: (start, end, data, chapter). Active chapter comes from the current result, others from the flow cache."""
         chs = self.chapters  # single snapshot so segment tuples stay consistent with each other
+        sec = self.ov_axis2_selected()
         segs = []
         for i, c in enumerate(chs):
             data = None
             if i == self.active and self.res is not None and not self.geometry_stale():
-                data = self.ov_series_res(self.res, self.fps())
+                data = self.ov_series_res2(self.res, self.fps()) if sec else self.ov_series_res(self.res, self.fps())
             else:
-                data = self.ov_other.get(i)          # o ativo, enquanto carrega, mostra o que havia
+                data = self.ov_other2.get(i) if sec else self.ov_other.get(i)
             end = chs[i + 1]["start"] if i + 1 < len(chs) else (self.src.dur if self.src else 1e9)
             segs.append((c["start"], end, data, c))
         return segs
@@ -1296,6 +1329,14 @@ class App:
     def handle_overview(self):
         if self.src is None or not dpg.is_item_visible("ov_dl"):
             return
+        has_a2 = getattr(self.a, "dual_axis", False) and (
+            (self.res is not None and self.res.get("v2") is not None)
+            or any(v is not None for v in self.ov_other2.values()))
+        for tag in ("ov_axis_label", "ov_axis"):
+            if dpg.does_item_exist(tag):
+                dpg.configure_item(tag, show=has_a2)
+        if not has_a2 and dpg.does_item_exist("ov_axis"):
+            dpg.set_value("ov_axis", "Axis 1")
         now = time.time()
         avail = int(dpg.get_item_rect_size("w_ov")[0]) - 18
         if avail >= 120 and abs(avail - self.ov_w) >= 4 and now - self.ov_redraw_t > 0.12:
@@ -1392,11 +1433,26 @@ class App:
                                              r["widx"], r["dbg"], r["kx"], fps)
         return self.ov_res_val
 
+    def ov_series_res2(self, r, fps):
+        """Like ov_series_res but for the secondary axis."""
+        if r.get("v2") is None:
+            return None
+        key = (id(r), "a2")
+        if self.ov_res2_key != key:
+            self.ov_res2_key = key
+            kx2 = r["kx2"]
+            self.ov_res2_val = self.ov_series(np.asarray(r["t"], float), np.asarray(r["fs2"], float),
+                                              r["v2"], r["widx"], r["dbg"], kx2, fps)
+        return self.ov_res2_val
+
     def ov_series_flow(self, b, fw):
-        """Same as ov_series_res but for a non-active chapter, computed from its cached flow."""
+        """Same as ov_series_res but for a non-active chapter; returns (primary, secondary_or_None)."""
         dx, dy, mag = fw
+        if getattr(b, "axis", "auto") == "angle":
+            b = copy.copy(b)
+            b.axis = str(float(getattr(b, "axis_angle", 90.0)))
         dbg = []
-        r = fl.compute(b, dx, dy, mag, dbg)
+        r = fl.compute(b, dx, dy, mag, dbg, a2=fl.build_a2(b))
         v = r["v"]
         t = b.start + np.arange(len(v)) / b.fps
         pts = r["pts"]
@@ -1405,7 +1461,14 @@ class App:
         widx = np.zeros(len(v), int)
         for k, (s0, e0, _) in enumerate(r["windows"]):
             widx[s0:e0] = k
-        return self.ov_series(t, fs, v, widx, dbg, kx, b.fps)
+        primary = self.ov_series(t, fs, v, widx, dbg, kx, b.fps)
+        secondary = None
+        if r.get("v2") is not None:
+            pts2 = r.get("pts2") or []
+            kx2 = np.array([x / 1000.0 for x, _ in pts2])
+            fs2 = np.interp(t, kx2, [y for _, y in pts2]) if len(kx2) else np.zeros(len(v))
+            secondary = self.ov_series(t, fs2, r["v2"], widx, dbg, kx2, b.fps)
+        return primary, secondary
 
     def ov_param_key(self, base):
         """Parameters outside the chapter that affect the funscript shown in the overview."""
@@ -1423,6 +1486,7 @@ class App:
         pk = self.ov_param_key(base)
         for i in [k for k in self.ov_other if k >= len(chs)]:
             self.ov_other.pop(i, None)
+            self.ov_other2.pop(i, None)
         if len(chs) > 1:
             for i in range(len(chs)):
                 if i == act:
@@ -1438,10 +1502,13 @@ class App:
                 try:
                     fw = fl.flow_for(b, cached_only=True)
                     if fw is not None:
-                        self.ov_other[i] = self.ov_series_flow(b, fw)
+                        primary, secondary = self.ov_series_flow(b, fw)
+                        self.ov_other[i] = primary
+                        self.ov_other2[i] = secondary
                         self.ov_memo[i] = (key, True)
                     else:
                         self.ov_other.pop(i, None)
+                        self.ov_other2.pop(i, None)
                 except Exception:
                     pass
                 time.sleep(0.01)                    # let the UI breathe between chapters
@@ -1468,14 +1535,16 @@ class App:
             self.on_param(value, user)
         return cb
 
-    def _record_slider(self, tag, attr_or_kind, stage_or_fmt):
+    def _record_slider(self, tag, *_):
         """Store this slider as the last touched for Ctrl+arrow nudge."""
         try:
             conf = dpg.get_item_configuration(tag)
             lo = conf.get("min_value", 0)
             hi = conf.get("max_value", 1)
             kind = "int" if isinstance(lo, int) and isinstance(hi, int) else "float"
-            step = self._fmt_step(stage_or_fmt, kind)
+            attr = tag[2:] if tag.startswith("p_") else None
+            fmt = PARAM_BY_ATTR[attr][6] if attr and attr in PARAM_BY_ATTR else ("%.0f" if kind == "int" else "%.1f")
+            step = self._fmt_step(fmt, kind)
             self.last_slider = (tag, lo, hi, kind, step)
         except Exception:
             pass
@@ -1512,11 +1581,55 @@ class App:
         if cb:
             cb(tag, new_val)
 
+    def _on_reset_btn(self, sender, app_data, user_data):
+        self.reset_param(user_data)
+
+    def reset_param(self, attr):
+        """Reset a single parameter to its current preset value (or parser default if not in preset)."""
+        try:
+            if attr not in PARAM_BY_ATTR:
+                self.status = f"reset: {attr} not in PARAM_BY_ATTR"
+                return
+            grp_, attr_, label, kind, lo, hi, fmt, stage = PARAM_BY_ATTR[attr]
+            if self.preset_ref in BUILTIN_PRESETS:
+                preset_vals = BUILTIN_PRESETS[self.preset_ref][1]
+            elif self.preset_ref in self.user_presets:
+                preset_vals = self.user_presets[self.preset_ref]
+            else:
+                preset_vals = {}
+            raw = preset_vals.get(attr, self.defaults.get(attr))
+            if raw is None:
+                self.status = f"reset: {attr} raw=None"
+                return
+            val = clean_param(attr, raw)
+            if val is None:
+                self.status = f"reset: {attr} val=None after clean"
+                return
+            tag = "p_" + attr
+            if not dpg.does_item_exist(tag):
+                self.status = f"reset: tag {tag} not found"
+                return
+            dpg.set_value(tag, str(val) if kind == "combo" else val)
+            cb = dpg.get_item_callback(tag)
+            if cb:
+                cb(tag, val)
+            else:
+                self.on_param(val, (attr, kind, stage))
+            self.status = f"reset {attr} → {val}"
+        except Exception as e:
+            self.status = f"reset error: {e}"
+
     def _refresh_a2_visibility(self):
         dual = getattr(self.a, "dual_axis", False)
         link = getattr(self.a, "a2_link", True)
         if dpg.does_item_exist("phdr_axis_2"):
             dpg.configure_item("phdr_axis_2", show=(dual and not link))
+
+    def _refresh_axis_angle_visibility(self):
+        show = getattr(self.a, "axis", "auto") == "angle"
+        tag = "pg_axis_angle" if dpg.does_item_exist("pg_axis_angle") else "p_axis_angle"
+        if dpg.does_item_exist(tag):
+            dpg.configure_item(tag, show=show)
 
     def on_param(self, value, user):
         attr, kind, stage = user
@@ -1527,6 +1640,8 @@ class App:
         setattr(self.a, attr, value)
         if attr in ("dual_axis", "a2_link"):
             self._refresh_a2_visibility()
+        if attr == "axis":
+            self._refresh_axis_angle_visibility()
         if attr in PARAM_BY_ATTR and attr in PRESET_ATTRS:
             self.refresh_diff()
         if stage == "c":
@@ -2002,7 +2117,7 @@ class App:
 
     # ------------------------------------------------------------ chapters
     def default_chapters(self):
-        return [{"start": 0.0, "zoom": None, "region": None, "invert": False, "axis_ref": None, "why": None}]
+        return [{"start": 0.0, "zoom": None, "region": None, "invert": False, "axis_ref": None, "axis": None, "axis_angle": None, "why": None}]
 
     def eff_invert(self):
         """Effective invert for the active chapter: global invert XOR chapter invert."""
@@ -2036,6 +2151,22 @@ class App:
             c["axis_ref"] = str(int(dpg.get_value("chap_ang")))
         else:
             c["axis_ref"] = value
+        self.chapter_changed()
+
+    def apply_chap_axis_mode(self):
+        if not self.a.video:
+            return
+        value = dpg.get_value("chap_axis")
+        c = self.chapters[self.active]
+        if value == "inherit":
+            c["axis"] = None
+            c["axis_angle"] = None
+        elif value == "angle":
+            c["axis"] = "angle"
+            c["axis_angle"] = float(dpg.get_value("chap_axis_ang"))
+        else:
+            c["axis"] = value
+            c["axis_angle"] = None
         self.chapter_changed()
 
     def chapter_changed(self):
@@ -2090,7 +2221,8 @@ class App:
         redo it, but any manual edit removes that mark."""
         path = fl.chapters_file(self.a.video)
         trivial = (len(self.chapters) == 1 and not self.chapters[0]["zoom"] and not self.chapters[0]["region"]
-                   and not self.chapters[0].get("invert") and not self.chapters[0].get("axis_ref"))
+                   and not self.chapters[0].get("invert") and not self.chapters[0].get("axis_ref")
+                   and not self.chapters[0].get("axis"))
         try:
             if trivial:
                 if os.path.exists(path):
@@ -2109,7 +2241,8 @@ class App:
             end = self.chapter_end(i)
             b = fl.chapter_args(self.a, self.chapters, i) if self.a.video else None
             ok = bool(b) and fl.flow_available(b)
-            tags = ("100 -> " + self.ref_text(c["axis_ref"]) + "  " if c.get("axis_ref") else "") + ("zoom" if c["zoom"] else "no zoom") + (" + region" if c["region"] else "") + (" + inverted" if c.get("invert") else "") + ("  [flow ok]" if ok else "")
+            ax_tag = (f"  axis:{c['axis']}" + (f"@{c['axis_angle']:.0f}°" if c.get("axis_angle") is not None else "")) if c.get("axis") else ""
+            tags = ("100 -> " + self.ref_text(c["axis_ref"]) + "  " if c.get("axis_ref") else "") + ("zoom" if c["zoom"] else "no zoom") + (" + region" if c["region"] else "") + (" + inverted" if c.get("invert") else "") + ax_tag + ("  [flow ok]" if ok else "")
             items.append(f"{i + 1}. {fmt_time(c['start'])} a {fmt_time(end)}  {tags}")
         self.chap_items = items
         dpg.configure_item("chap_list", items=items, num_items=min(max(len(items), 2), 6))
@@ -2122,6 +2255,14 @@ class App:
             dpg.set_value("chap_ang", int(round(float(ar))) % 360)
         except (TypeError, ValueError):
             dpg.set_value("chap_axmode", ar if ar in AXMODES else AXMODES[0])
+        ax = self.chapters[self.active].get("axis") or "inherit"
+        if dpg.does_item_exist("chap_axis"):
+            dpg.set_value("chap_axis", ax)
+        if dpg.does_item_exist("chap_axis_ang"):
+            ang = self.chapters[self.active].get("axis_angle")
+            if ang is not None:
+                dpg.set_value("chap_axis_ang", float(ang))
+            dpg.configure_item("chap_axis_ang", show=(ax == "angle"))
         n = len(self.chapters)
         dpg.set_value("chap_text", "single chapter (whole video)" if n == 1 else
                       f"{n} chapters. Zoom or region applies to the chapter where the cursor is.")
@@ -2173,6 +2314,7 @@ class App:
         if self.res is not None and not self.geometry_stale():
             try:                     # the outgoing chapter is shown in the overview without waiting for recalculation
                 self.ov_other[self.active] = self.ov_series_res(self.res, self.fps())
+                self.ov_other2[self.active] = self.ov_series_res2(self.res, self.fps())
                 self.ov_memo.pop(self.active, None)
             except Exception:
                 pass
@@ -2206,8 +2348,8 @@ class App:
             return
         self.sync_chapter()
         self.chapters.insert(j + 1, {"start": round(float(t), 2), "zoom": self.chapters[j]["zoom"], "region": None, "invert": False,
-                              "axis_ref": None, "why": "manual"})
-        self.ov_other, self.ov_memo = {}, {}
+                              "axis_ref": None, "axis": None, "axis_angle": None, "why": "manual"})
+        self.ov_other, self.ov_other2, self.ov_memo = {}, {}, {}
         self.write_chapters_file()
         self.activate(j + 1, jump=False)
 
@@ -2219,7 +2361,7 @@ class App:
             self.status = "wait for the computation to finish (or cancel) before removing"
             return
         self.chapters = self.default_chapters()
-        self.ov_other, self.ov_memo = {}, {}
+        self.ov_other, self.ov_other2, self.ov_memo = {}, {}, {}
         self.write_chapters_file()
         self.activate(0, jump=False)
         self.status = "all chapters removed"
@@ -2236,7 +2378,7 @@ class App:
             self.status = "chapter 2 merged into chapter 1"
         else:
             del self.chapters[self.active]  # o anterior passa a ocupar o seu tempo
-        self.ov_other, self.ov_memo = {}, {}
+        self.ov_other, self.ov_other2, self.ov_memo = {}, {}, {}
         self.write_chapters_file()
         self.activate(max(self.active - 1, 0), jump=False)
 
@@ -2282,7 +2424,7 @@ class App:
         chs, self.suggested = self.suggested, None
         self.chapters = chs
         self.active = 0
-        self.ov_other, self.ov_memo = {}, {}
+        self.ov_other, self.ov_other2, self.ov_memo = {}, {}, {}
         self.write_chapters_file(auto=True)
         self.apply_chapter_args()
         self.set_mode("none")

@@ -32,26 +32,35 @@ def velocity(dx, dy, mag, bounds, fps, a, dbg=None):
     eps = (a.noise ** 2) * rh * rw
     prev_axis = None
     mode = getattr(a, "axis_ref", "chapter")
-    cref = chapter_axis(dx, dy, mag, windows, rois, rh, rw, fps, a) if (mode == "chapter" and a.axis != "y") else None
+    cref = chapter_axis(dx, dy, mag, windows, rois, rh, rw, fps, a) if (mode == "chapter" and getattr(a, "axis", "auto") != "y") else None
     for wi, ((s, e, _), (y0, x0)) in enumerate(zip(windows, rois)):
         sl = (slice(s, e), slice(y0, y0 + rh), slice(x0, x0 + rw))
         mx = dx[sl].astype(np.float64)
         my = dy[sl].astype(np.float64)
         mg = mag[sl].astype(np.float64)
         w = mg ** 2
-        if a.axis == "y":
+        axis_mode = getattr(a, "axis", "auto")
+        if axis_mode == "y":
             ux, uy = 0.0, 1.0
         else:
-            sxx = (w * mx * mx).sum()
-            syy = (w * my * my).sum()
-            sxy = (w * mx * my).sum()
-            _, vecs = np.linalg.eigh(np.array([[sxx, sxy], [sxy, syy]]))
-            ux, uy = vecs[:, 1]
-            # PCA gives only the axis; the direction is arbitrary. With --axis-ref the positive
-            # direction (towards 100) is the one closest to that reference, window by window, so
-            # an error in one window does not propagate. Only when the axis is nearly perpendicular
-            # to the reference (|cos| < --axis-margin) is direction ambiguous and follows the
-            # previous window. With --axis-ref auto it is just continuity (old behaviour).
+            if axis_mode == "auto":
+                sxx = (w * mx * mx).sum()
+                syy = (w * my * my).sum()
+                sxy = (w * mx * my).sum()
+                _, vecs = np.linalg.eigh(np.array([[sxx, sxy], [sxy, syy]]))
+                ux, uy = vecs[:, 1]
+            else:
+                # numeric degrees: 0 = right, 90 = down
+                try:
+                    r = np.radians(float(axis_mode))
+                    ux, uy = float(np.cos(r)), float(np.sin(r))
+                except (TypeError, ValueError):
+                    ux, uy = 0.0, 1.0
+            # PCA gives only the axis; forced angle also needs direction resolved.
+            # With --axis-ref the positive direction (towards 100) is the one closest to that
+            # reference, window by window, so an error in one window does not propagate. Only when
+            # nearly perpendicular to the reference (|cos| < --axis-margin) does it follow the
+            # previous window. With --axis-ref auto it is continuity only (old behaviour).
             ref = cref if mode == "chapter" else axis_vec(mode)
             d = ux * ref[0] + uy * ref[1] if ref else 0.0
             if ref and abs(d) >= getattr(a, "axis_margin", 0.35):

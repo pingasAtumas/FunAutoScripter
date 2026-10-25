@@ -59,6 +59,7 @@ def load_chapters(source, video=None):
                         "axis_ref": get(4)})
     chs = sorted(({"start": float(c.get("start", 0)), "zoom": c.get("zoom") or None, "region": c.get("region") or None,
                    "invert": bool(c.get("invert")), "axis_ref": c.get("axis_ref") or None,
+                   "axis": c.get("axis") or None, "axis_angle": c.get("axis_angle"),
                    "why": c.get("why") or None}
                   for c in raw), key=lambda c: c["start"])
     if chs:
@@ -80,6 +81,10 @@ def chapter_args(a, chs, i):
     b.zoom, b.region = c.get("zoom"), c.get("region")
     if c.get("axis_ref") is not None:      # the chapter's axis-ref (e.g. an angle) overrides the global
         b.axis_ref = str(c["axis_ref"])
+    if c.get("axis") is not None:          # chapter's forced axis mode overrides the global
+        b.axis = str(c["axis"])
+        if c["axis"] == "angle" and c.get("axis_angle") is not None:
+            b.axis_angle = float(c["axis_angle"])
     # chapter invert toggles the global (--invert), does not replace it
     b.invert = bool(a.invert) != bool(c.get("invert"))
     return b

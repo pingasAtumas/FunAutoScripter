@@ -1061,6 +1061,7 @@ class App:
         r = self.res
         if r is None:
             return
+        fps = self.fps()
         dual = getattr(self.a, "dual_axis", False)
         sec = dual and self.show_axis == "secondary" and r.get("v2") is not None
         tl = r["t"].tolist()
@@ -1070,24 +1071,29 @@ class App:
             p   = r.get("p2", r["p"])
             raw = np.cumsum(r["v2"])
             pos = r.get("pos2", r["pos"])
+            spd = np.gradient(fs) * fps
         else:
             kx, ky, fs = r["kx"], r["ky"], r["fs"]
-            v, p, raw, pos = r["v"], r["p"], r["raw"], r["pos"]
+            v, p, raw, pos, spd = r["v"], r["p"], r["raw"], r["pos"], r["fs_speed"]
         dpg.set_value("s_kf",  [kx.tolist(), ky.tolist()])
         dpg.set_value("s_fs",  [tl, fs.tolist()])
         dpg.set_value("s_v",   [tl, v.tolist()])
         dpg.set_value("s_p",   [tl, p.tolist()])
         dpg.set_value("s_raw", [tl, raw.tolist()])
         dpg.set_value("s_pos", [tl, pos.tolist()])
+        dpg.set_value("s_spd", [tl, spd.tolist()])
         invert = (getattr(self.a, "dual_axis_invert", False) if sec else self.eff_invert())
         up = "0" if invert else "100"
         dpg.configure_item("s_v",   label=f"velocity (+ = {up})")
         dpg.configure_item("s_p",   label=f"filtered (+ = {up})")
         dpg.configure_item("s_raw", label=f"raw (+ = {up})")
-        axis_id = getattr(self.a, "axis2_id", "L2") if sec else getattr(self.a, "axis_id", "L0")
-        suffix = fl.AXIS_SUFFIX.get(axis_id, "")
-        label = f"({axis_id} – {suffix})" if suffix else f"({axis_id} – stroke)"
-        dpg.set_value("ax_view_label", label)
+        if dpg.does_item_exist("ax_view_row"):
+            dpg.configure_item("ax_view_row", show=dual)
+        if dpg.does_item_exist("ax_view_label"):
+            axis_id = getattr(self.a, "axis2_id", "L2") if sec else getattr(self.a, "axis_id", "L0")
+            suffix = fl.AXIS_SUFFIX.get(axis_id, "")
+            label = f"({axis_id} – {suffix})" if suffix else f"({axis_id} – stroke)"
+            dpg.set_value("ax_view_label", label)
         self.dirty_view = True
 
     # --------------------------------------------- overview timeline
@@ -2765,26 +2771,10 @@ class App:
         self.dbg = r["dbg"]
         t = r["t"]
         tl = t.tolist()
-        series = {"s_mag": r["ch_mag"], "s_per": r["ch_period"], "s_score": r["ch_score"], "s_best": r["best"],
-                  "s_v": r["v"], "s_p": r["p"], "s_raw": r["raw"], "s_pos": r["pos"],
-                  "s_spd": r["fs_speed"]}
-        for tag, y in series.items():
+        for tag, y in {"s_mag": r["ch_mag"], "s_per": r["ch_period"],
+                       "s_score": r["ch_score"], "s_best": r["best"]}.items():
             dpg.set_value(tag, [tl, y.tolist()])
-        # show primary or secondary axis in script rows depending on selection
-        dual = getattr(self.a, "dual_axis", False)
-        if dpg.does_item_exist("ax_view_row"):
-            dpg.configure_item("ax_view_row", show=dual)
-        if dual and self.show_axis == "secondary" and len(r.get("kx2", [])):
-            dpg.set_value("s_fs", [tl, r["fs2"].tolist()])
-            dpg.set_value("s_kf", [r["kx2"].tolist(), r["ky2"].tolist()])
-        else:
-            dpg.set_value("s_fs", [tl, r["fs"].tolist()])
-            dpg.set_value("s_kf", [r["kx"].tolist(), r["ky"].tolist()])
-        if dpg.does_item_exist("ax_view_label"):
-            axis_id = getattr(self.a, "axis2_id", "L2") if (dual and self.show_axis == "secondary") else getattr(self.a, "axis_id", "L0")
-            suffix = fl.AXIS_SUFFIX.get(axis_id, "")
-            label = f"({axis_id} – {suffix})" if suffix else f"({axis_id} – stroke)"
-            dpg.set_value("ax_view_label", label)
+        self._update_timeline_axis()
         for tag in ("sw_line", "lim_line", "fl_line"):
             if dpg.does_item_exist(tag):
                 dpg.delete_item(tag)
@@ -2796,10 +2786,6 @@ class App:
         lim = float(self.a.max_speed)
         dpg.add_inf_line_series([lim, -lim], horizontal=True, label="speed limit", tag="lim_line", parent="ty4")
         dpg.set_axis_limits("ty4", -1.3 * lim, 1.3 * lim)
-        up = "0" if self.eff_invert() else "100"      # where the positive signal points
-        dpg.configure_item("s_v", label=f"velocity (+ = {up})")
-        dpg.configure_item("s_p", label=f"filtered (+ = {up})")
-        dpg.configure_item("s_raw", label=f"raw (+ = {up})")
         self.ov_dirty = True
         if self.fresh:
             self.fresh = False

@@ -13,6 +13,7 @@ def velocity(dx, dy, mag, bounds, fps, a, dbg=None):
     T = len(mag)
     windows, rois, rh, rw = choose_rois(dx, dy, mag, bounds, fps, a, dbg)
     v = np.zeros(T)
+    v2 = np.zeros(T) if getattr(a, "dual_axis", False) else None
     eps = (a.noise ** 2) * rh * rw
     prev_axis = None
     mode = getattr(a, "axis_ref", "chapter")
@@ -55,7 +56,10 @@ def velocity(dx, dy, mag, bounds, fps, a, dbg=None):
             dbg[wi]["axis"] = (float(ux), float(uy))
         u = mx * ux + my * uy
         v[s:e] = (w * u).sum(axis=(1, 2)) / (w.sum(axis=(1, 2)) + eps)
-    return v, windows, rois, (rh, rw)
+        if v2 is not None:
+            u_perp = mx * (-uy) + my * ux   # 90° CCW from primary
+            v2[s:e] = (w * u_perp).sum(axis=(1, 2)) / (w.sum(axis=(1, 2)) + eps)
+    return v, windows, rois, (rh, rw), v2
 
 
 def to_position(v, fps, a):
@@ -156,14 +160,24 @@ def compute(a, dx, dy, mag, dbg=None):
     """Steps 2 to 7 (fast): from the computed flow to keyframes.
 
     Writes nothing, so it works for both the CLI and the GUI.
+    When a.dual_axis is True, also returns v2/p2/pos2/pts2 for the perpendicular axis.
     """
     fps = a.fps
     bounds = [0, len(mag)]
-    v, windows, rois, grid = velocity(dx, dy, mag, bounds, fps, a, dbg)
+    v, windows, rois, grid, v2 = velocity(dx, dy, mag, bounds, fps, a, dbg)
     p = to_position(v, fps, a)
     ps = gaussian_filter1d(p, a.smooth * fps) if a.smooth > 0 else p
     pos = enhance(post_enhance(normalise(ps, fps, a), fps, a), a)
     if a.invert:
         pos = 100 - pos
     pts = keyframes(pos, fps, a)
-    return {"v": v, "p": p, "pos": pos, "pts": pts, "windows": windows, "rois": rois, "grid": grid}
+    out = {"v": v, "p": p, "pos": pos, "pts": pts, "windows": windows, "rois": rois, "grid": grid}
+    if v2 is not None:
+        p2 = to_position(v2, fps, a)
+        ps2 = gaussian_filter1d(p2, a.smooth * fps) if a.smooth > 0 else p2
+        pos2 = enhance(post_enhance(normalise(ps2, fps, a), fps, a), a)
+        if getattr(a, "dual_axis_invert", False):
+            pos2 = 100 - pos2
+        pts2 = keyframes(pos2, fps, a)
+        out.update({"v2": v2, "p2": p2, "pos2": pos2, "pts2": pts2})
+    return out

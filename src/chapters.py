@@ -149,8 +149,10 @@ def process_chapters(a, chs, progress=None):
     """Each chapter is processed independently (its own region, its own axis-ref) and keyframes are merged in time.
 
     A chapter does not need its own flow if the whole-video flow already exists with the same zoom
-    (flow_for slices it). Only chapters with a different zoom compute their own."""
-    pts = []
+    (flow_for slices it). Only chapters with a different zoom compute their own.
+    Returns pts when single-axis, (pts, pts2) when dual_axis."""
+    pts, pts2 = [], []
+    dual = getattr(a, "dual_axis", False)
     for i in range(len(chs)):
         b = chapter_args(a, chs, i)
         log(f"chapter {i + 1}/{len(chs)}: from {b.start:.1f}s, zoom {b.zoom or 'none'}, "
@@ -161,7 +163,12 @@ def process_chapters(a, chs, progress=None):
         r = compute(b, dx, dy, mag)
         end_ms = (chs[i + 1]["start"] * 1000.0) if i + 1 < len(chs) else float("inf")
         pts += [(t, p) for t, p in r["pts"] if t < end_ms]
+        if dual and "pts2" in r:
+            pts2 += [(t, p) for t, p in r["pts2"] if t < end_ms]
     pts.sort(key=lambda q: q[0])
+    if dual:
+        pts2.sort(key=lambda q: q[0])
+        return limit_speed(pts, a), limit_speed(pts2, a)
     return limit_speed(pts, a)
 
 

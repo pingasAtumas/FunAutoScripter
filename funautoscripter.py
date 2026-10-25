@@ -7,7 +7,7 @@ from src import (
     split_windows, periodicity_score, roi_size, choose_rois, AXIS_REFS, axis_vec,
     chapter_axis,
     velocity, to_position, normalise, enhance, post_enhance, keyframes, compute,
-    write_funscript, plot,
+    write_funscript, plot, AXIS_SUFFIX, axis2_path,
     PALETTE, FONT, put, box, bar, VideoOut, draw_plot, DEBUG_VIDEOS, DEBUG_ALIASES,
     parse_debug_videos, render_debug,
     chapters_file, load_chapters, chapter_args, limit_speed, load_full,

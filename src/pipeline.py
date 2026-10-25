@@ -11,7 +11,7 @@ import numpy as np
 
 from .flow import log, load_or_extract, accel_report, Cancelled, NoFlow, BACKEND, FIXED_THREADS
 from .signal import compute
-from .output import write_funscript, plot
+from .output import write_funscript, plot, axis2_path
 from .debug import render_debug, parse_debug_videos
 from .chapters import (chapters_file, load_chapters, chapter_args, limit_speed, load_full,
                        _full_args, flow_available, flow_for, process_chapters, detect_chapters,
@@ -33,12 +33,23 @@ def process(a, progress=None):
             flow = load_or_extract(a, progress)
         return flow
 
+    dual = getattr(a, "dual_axis", False)
+    axis2_id = getattr(a, "axis2_id", "L2")
+    out2 = axis2_path(a.output, axis2_id) if dual else None
+
     chs, flow = resolve_chapters(a, load_flow)
     if chs:
         if a.plot or a.debug:
             log("with chapters, --plot and --debug are not generated (use --chapters none to get them)")
-        pts = process_chapters(a, chs, progress)
+        ch_result = process_chapters(a, chs, progress)
+        if dual:
+            pts, pts2 = ch_result
+        else:
+            pts, pts2 = ch_result, None
         n = write_funscript(a.output, pts)
+        if dual and pts2:
+            write_funscript(out2, pts2)
+            log(f"wrote {len(pts2)} actions to {out2}")
         log(f"wrote {n} actions to {a.output}  (done in {_time.perf_counter() - _t0:.1f} s)")
         return n
     dx, dy, mag = load_flow()
@@ -46,8 +57,12 @@ def process(a, progress=None):
     dbg = [] if a.debug else None
     r = compute(a, dx, dy, mag, dbg)
     v, p, pos, pts = r["v"], r["p"], r["pos"], r["pts"]
+    pts2 = r.get("pts2")
     windows, rois, grid = r["windows"], r["rois"], r["grid"]
     n = write_funscript(a.output, pts)
+    if dual and pts2:
+        write_funscript(out2, pts2)
+        log(f"wrote {len(pts2)} secondary actions to {out2}")
     log(f"wrote {n} actions to {a.output}  (done in {_time.perf_counter() - _t0:.1f} s)")
     if a.plot:
         plot(a.plot, v, p, pos, pts, rois, grid, mag, fps, a)
@@ -271,6 +286,10 @@ def build_parser():
     g.add_argument("--high-pct", type=float, default=97.0)
     g.add_argument("--floor", type=float, default=0.35, help="minimum local range vs the typical range (stops noise being amplified in pauses)")
     g.add_argument("--invert", action="store_true", help="flip up and down")
+    g.add_argument("--dual-axis", action="store_true", help="also generate a funscript for the perpendicular axis (stored in <output>.<axis2>.funscript)")
+    g.add_argument("--axis-id", default="L0", choices=["L0","L1","L2","R0","R1","R2"], help="TCode axis for the primary script (label only, does not change analysis)")
+    g.add_argument("--axis2-id", default="L2", choices=["L0","L1","L2","R0","R1","R2"], help="TCode axis for the perpendicular script")
+    g.add_argument("--dual-axis-invert", action="store_true", help="invert the perpendicular (secondary) axis")
     g.add_argument("--hp2", type=float, default=0.0, help="Hz: cut low frequencies from the already-scaled funscript (0 = off). Removes slow oscillation and keeps fast strokes")
     g.add_argument("--hfboost", type=float, default=0.0, help="boost high frequencies above --hf-freq (0 = off, 1 = double the amplitude of fast strokes relative to slow ones)")
     g.add_argument("--hf-freq", type=float, default=1.5, help="Hz: where the --hfboost enhancement begins")

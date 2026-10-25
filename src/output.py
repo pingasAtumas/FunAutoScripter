@@ -6,6 +6,25 @@ import numpy as np
 
 from .flow import log
 
+# Maps TCode axis ID to the funscript companion file suffix (L0=stroke has no suffix).
+AXIS_SUFFIX = {
+    "L0": "",
+    "L1": "surge",
+    "L2": "sway",
+    "R0": "twist",
+    "R1": "roll",
+    "R2": "pitch",
+}
+
+
+def axis2_path(base_path, axis_id):
+    """Return the companion funscript path for a given TCode axis ID."""
+    suffix = AXIS_SUFFIX.get(axis_id, axis_id.lower())
+    if not suffix:
+        return base_path
+    stem, ext = os.path.splitext(base_path)
+    return f"{stem}.{suffix}{ext}"
+
 
 def write_funscript(path, pts):
     actions = []

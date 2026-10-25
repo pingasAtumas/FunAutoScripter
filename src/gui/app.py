@@ -951,9 +951,10 @@ class App:
         OPEN_GROUPS = {"Enhancement", "Region", "Signal", "Keyframes"}
         for grp, specs in groups.items():
             tag_hdr = "phdr_" + grp.lower().replace(" ", "_").replace("(", "").replace(")", "")
-            initially_hidden = grp == "Axis 2"
+            show_grp = (grp != "Axis 2" or
+                        (getattr(self.a, "dual_axis", False) and not getattr(self.a, "a2_link", True)))
             with dpg.collapsing_header(label=grp, default_open=(grp in OPEN_GROUPS), tag=tag_hdr,
-                                       show=not initially_hidden):
+                                       show=show_grp):
                 if grp == "Auto Chapters":
                     self.txt("muted", AUTO_HELP, wrap=0)
                 if grp == "Axis 2":

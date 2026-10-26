@@ -841,10 +841,12 @@ class App:
             pass
 
     def reset_layout(self):
-        # Do NOT copy here — ImGui auto-saves and would overwrite it within seconds.
-        # The copy happens in run() after destroy_context() when ImGui is fully stopped.
         self.layout_reset = True
-        self.status = "layout reset: close and reopen the program"
+        try:
+            os.remove(self.layout_path)
+        except OSError:
+            pass
+        dpg.stop_dearpygui()
 
     def apply_default_layout(self):
         """First run (no layout file): arranges windows side by side. With the layout file active,
@@ -3428,17 +3430,6 @@ class App:
         self.save_layout()
         self.alive = False
         dpg.destroy_context()
-        if self.layout_reset:
-            # ImGui is fully stopped — copy the default now, no auto-save can overwrite it
-            try:
-                import shutil
-                src = self._default_layout_src()
-                if os.path.exists(src):
-                    shutil.copy2(src, self.layout_path)
-                else:
-                    os.remove(self.layout_path)
-            except OSError:
-                pass
 
     def capture_step(self):
         """For headless testing: waits for the result, saves a screenshot and exits."""

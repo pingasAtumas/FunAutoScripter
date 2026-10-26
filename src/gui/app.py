@@ -1524,14 +1524,21 @@ class App:
 
     # ---------------------------------------------------------- callbacks
     def on_file(self, sender, app_data):
-        path = app_data.get("file_path_name") or ""
-        if not os.path.isfile(path):
-            # DPG appends the active filter extension to file_path_name (e.g. "video.mp4.*"),
-            # so the path is invalid. The selections dict always has the real path.
-            sels = app_data.get("selections") or {}
-            if sels:
-                path = next(iter(sels.values()), path)
-        if path:
+        path = os.path.normpath(app_data.get("file_path_name") or "")
+        if not os.path.exists(path):
+            # DPG on Windows duplicates the last folder component in file_path_name
+            # when using directory_selector=True (e.g. C:\foo\bar\bar). current_path
+            # is the actual selected directory in that case.
+            cur = app_data.get("current_path") or ""
+            if cur and os.path.isdir(cur):
+                path = os.path.normpath(cur)
+            else:
+                # DPG appends the active filter extension to file_path_name for files
+                # (e.g. "video.mp4.*") — the selections dict always has the real path.
+                sels = app_data.get("selections") or {}
+                if sels:
+                    path = os.path.normpath(next(iter(sels.values()), path))
+        if path and os.path.exists(path):
             self.open_path(path)
 
     def make_cb(self, user):

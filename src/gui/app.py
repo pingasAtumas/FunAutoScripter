@@ -1526,8 +1526,8 @@ class App:
     def on_file(self, sender, app_data):
         path = os.path.normpath(app_data.get("file_path_name") or "")
         if not os.path.exists(path):
-            # DPG on Windows duplicates the last folder component in file_path_name
-            # when using directory_selector=True (e.g. C:\foo\bar\bar). current_path
+            # DPG bug: duplicates the last folder component in file_path_name
+            # when using directory_selector=True (e.g. /foo/bar/bar). current_path
             # is the actual selected directory in that case.
             cur = app_data.get("current_path") or ""
             if cur and os.path.isdir(cur):

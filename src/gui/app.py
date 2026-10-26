@@ -518,20 +518,33 @@ class App:
                           on_close=lambda s: self.on_win_close(tag), **kw)
 
     def build_ui(self):
-        dpg.create_context()
+        print(f"[layout] layout_path={self.layout_path}")
+        print(f"[layout] layout_path exists before create_context: {os.path.exists(self.layout_path)}")
         try:
             os.makedirs(os.path.dirname(self.layout_path), exist_ok=True)
-        except OSError:
-            pass
+        except OSError as e:
+            print(f"[layout] makedirs failed: {e}")
+        self._layout_from_default = False
         if not os.path.exists(self.layout_path):
+            import sys as _sys
+            src = os.path.join(os.path.dirname(__file__), "default_layout.ini")
+            if not os.path.exists(src) and getattr(_sys, "frozen", False):
+                src = os.path.join(_sys._MEIPASS, "src", "gui", "default_layout.ini")
+            print(f"[layout] no layout.ini, trying to copy from src={src}")
+            print(f"[layout] src exists: {os.path.exists(src)}")
             try:
                 import shutil
-                src = os.path.join(os.path.dirname(__file__), "default_layout.ini")
                 if os.path.exists(src):
                     shutil.copy2(src, self.layout_path)
-            except OSError:
-                pass
+                    self._layout_from_default = True
+                    print(f"[layout] copy succeeded, layout_path exists: {os.path.exists(self.layout_path)}")
+            except Exception as e:
+                print(f"[layout] copy failed: {e}")
+        else:
+            print("[layout] layout.ini already exists, skipping copy")
         self.have_layout = os.path.exists(self.layout_path)
+        print(f"[layout] have_layout={self.have_layout}, _layout_from_default={self._layout_from_default}")
+        dpg.create_context()
         dpg.configure_app(docking=True, docking_space=True, docking_shift_only=False, init_file=self.layout_path)
         self.buf = np.zeros((CH, CW, 4), np.float32)
         self.buf[..., 3] = 1.0

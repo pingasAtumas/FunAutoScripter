@@ -526,10 +526,7 @@ class App:
             print(f"[layout] makedirs failed: {e}")
         self._layout_from_default = False
         if not os.path.exists(self.layout_path):
-            import sys as _sys
-            src = os.path.join(os.path.dirname(__file__), "default_layout.ini")
-            if not os.path.exists(src) and getattr(_sys, "frozen", False):
-                src = os.path.join(_sys._MEIPASS, "src", "gui", "default_layout.ini")
+            src = self._default_layout_src()
             print(f"[layout] no layout.ini, trying to copy from src={src}")
             print(f"[layout] src exists: {os.path.exists(src)}")
             try:
@@ -844,16 +841,9 @@ class App:
             pass
 
     def reset_layout(self):
-        try:
-            import shutil
-            src = os.path.join(os.path.dirname(__file__), "default_layout.ini")
-            if os.path.exists(src):
-                shutil.copy2(src, self.layout_path)
-            else:
-                os.remove(self.layout_path)
-        except OSError:
-            pass
-        self.layout_reset = True            # do not save it again on exit
+        # Do NOT copy here — ImGui auto-saves and would overwrite it within seconds.
+        # The copy happens in run() after destroy_context() when ImGui is fully stopped.
+        self.layout_reset = True
         self.status = "layout reset: close and reopen the program"
 
     def apply_default_layout(self):
@@ -3422,6 +3412,13 @@ class App:
         if self.captura:
             self.capture_step()
 
+    def _default_layout_src(self):
+        import sys as _sys
+        src = os.path.join(os.path.dirname(__file__), "default_layout.ini")
+        if not os.path.exists(src) and getattr(_sys, "frozen", False):
+            src = os.path.join(_sys._MEIPASS, "src", "gui", "default_layout.ini")
+        return src
+
     def run(self):
         dpg.show_viewport()
         while dpg.is_dearpygui_running():
@@ -3431,6 +3428,17 @@ class App:
         self.save_layout()
         self.alive = False
         dpg.destroy_context()
+        if self.layout_reset:
+            # ImGui is fully stopped — copy the default now, no auto-save can overwrite it
+            try:
+                import shutil
+                src = self._default_layout_src()
+                if os.path.exists(src):
+                    shutil.copy2(src, self.layout_path)
+                else:
+                    os.remove(self.layout_path)
+            except OSError:
+                pass
 
     def capture_step(self):
         """For headless testing: waits for the result, saves a screenshot and exits."""

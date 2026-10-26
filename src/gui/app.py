@@ -842,10 +842,6 @@ class App:
 
     def reset_layout(self):
         self.layout_reset = True
-        try:
-            os.remove(self.layout_path)
-        except OSError:
-            pass
         dpg.stop_dearpygui()
 
     def apply_default_layout(self):
@@ -3430,6 +3426,11 @@ class App:
         self.save_layout()
         self.alive = False
         dpg.destroy_context()
+        if self.layout_reset:
+            try:
+                os.remove(self.layout_path)
+            except OSError:
+                pass
 
     def capture_step(self):
         """For headless testing: waits for the result, saves a screenshot and exits."""

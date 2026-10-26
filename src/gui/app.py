@@ -938,7 +938,7 @@ class App:
             dpg.add_button(label="Draw on video", tag="b_axis_draw", callback=lambda: self.set_mode("axis"))
         self.txt("muted", "", tag="chap_axinfo", wrap=0)
         self.txt("head", "Chapter axis")
-        dpg.add_combo(["inherit", "auto", "y", "angle"], tag="chap_axis", default_value="inherit", width=130,
+        dpg.add_combo(["inherit", "auto", "angle"], tag="chap_axis", default_value="inherit", width=130,
                       callback=lambda s, v: dpg.configure_item("chap_axis_ang", show=(v == "angle")))
         dpg.add_slider_float(label="angle (°)", tag="chap_axis_ang", default_value=90.0, min_value=0.0, max_value=360.0,
                              format="%.1f", width=170, show=False)

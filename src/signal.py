@@ -21,18 +21,20 @@ from scipy.ndimage import gaussian_filter1d
 from scipy.signal import butter, sosfiltfilt, find_peaks
 
 from .flow import log
-from .roi import choose_rois, chapter_axis, axis_vec
+from .roi import choose_rois, chapter_axis, axis_vec, global_axis
 
 
 def velocity(dx, dy, mag, bounds, fps, a, dbg=None):
     T = len(mag)
-    windows, rois, rh, rw = choose_rois(dx, dy, mag, bounds, fps, a, dbg)
+    axis_lock = getattr(a, "axis_lock", 0.0)
+    chap_ax = global_axis(dx, dy, mag) if axis_lock > 0.1 else None
+    windows, rois, rh, rw = choose_rois(dx, dy, mag, bounds, fps, a, dbg, chap_axis=chap_ax)
     v = np.zeros(T)
     v2 = np.zeros(T) if getattr(a, "dual_axis", False) else None
     eps = (a.noise ** 2) * rh * rw
     prev_axis = None
     mode = getattr(a, "axis_ref", "chapter")
-    cref = chapter_axis(dx, dy, mag, windows, rois, rh, rw, fps, a) if (mode == "chapter" and getattr(a, "axis", "auto") != "y") else None
+    cref = chapter_axis(dx, dy, mag, windows, rois, rh, rw, fps, a) if mode == "chapter" else None
     for wi, ((s, e, _), (y0, x0)) in enumerate(zip(windows, rois)):
         sl = (slice(s, e), slice(y0, y0 + rh), slice(x0, x0 + rw))
         mx = dx[sl].astype(np.float64)
@@ -40,42 +42,44 @@ def velocity(dx, dy, mag, bounds, fps, a, dbg=None):
         mg = mag[sl].astype(np.float64)
         w = mg ** 2
         axis_mode = getattr(a, "axis", "auto")
-        if axis_mode == "y":
-            ux, uy = 0.0, 1.0
+        # ref is the chapter/global direction reference — computed first so axis_lock can use it
+        ref = cref if mode == "chapter" else axis_vec(mode)
+        if axis_mode == "auto":
+            sxx = (w * mx * mx).sum()
+            syy = (w * my * my).sum()
+            sxy = (w * mx * my).sum()
+            _, vecs = np.linalg.eigh(np.array([[sxx, sxy], [sxy, syy]]))
+            ux, uy = vecs[:, 1]
+            # axis lock: if PCA axis deviates more than allowed from the chapter reference,
+            # use the reference directly. axis_lock=0 → no locking; axis_lock=90 → always locked.
+            if axis_lock > 0.1 and ref is not None:
+                if abs(ux * ref[0] + uy * ref[1]) < np.sin(np.radians(axis_lock)):
+                    ux, uy = float(ref[0]), float(ref[1])
         else:
-            if axis_mode == "auto":
-                sxx = (w * mx * mx).sum()
-                syy = (w * my * my).sum()
-                sxy = (w * mx * my).sum()
-                _, vecs = np.linalg.eigh(np.array([[sxx, sxy], [sxy, syy]]))
-                ux, uy = vecs[:, 1]
-            else:
-                # numeric degrees: 0 = right, 90 = down
-                try:
-                    r = np.radians(float(axis_mode))
-                    ux, uy = float(np.cos(r)), float(np.sin(r))
-                except (TypeError, ValueError):
-                    ux, uy = 0.0, 1.0
-            # PCA gives only the axis; forced angle also needs direction resolved.
-            # With --axis-ref the positive direction (towards 100) is the one closest to that
-            # reference, window by window, so an error in one window does not propagate. Only when
-            # nearly perpendicular to the reference (|cos| < --axis-margin) does it follow the
-            # previous window. With --axis-ref auto it is continuity only (old behaviour).
-            ref = cref if mode == "chapter" else axis_vec(mode)
-            d = ux * ref[0] + uy * ref[1] if ref else 0.0
-            if ref and abs(d) >= getattr(a, "axis_margin", 0.35):
-                if d < 0:
-                    ux, uy = -ux, -uy
-            elif prev_axis is None:
-                if (d < 0) if ref else (uy < 0 or (abs(uy) < 1e-6 and ux < 0)):
-                    ux, uy = -ux, -uy
-            elif ux * prev_axis[0] + uy * prev_axis[1] < 0:
+            # numeric degrees: 0 = right, 90 = down. "y" (legacy) falls through to except → 0,1
+            try:
+                r = np.radians(float(axis_mode))
+                ux, uy = float(np.cos(r)), float(np.sin(r))
+            except (TypeError, ValueError):
+                ux, uy = 0.0, 1.0
+        # direction resolution: applies to both PCA and forced angle.
+        # With --axis-ref the positive end (towards 100) is the one closest to the reference,
+        # window by window — an error does not propagate. Only when nearly perpendicular to the
+        # reference (|cos| < --axis-margin) does it fall back to continuity.
+        d = ux * ref[0] + uy * ref[1] if ref else 0.0
+        if ref and abs(d) >= getattr(a, "axis_margin", 0.35):
+            if d < 0:
                 ux, uy = -ux, -uy
-            flipped = prev_axis is not None and ux * prev_axis[0] + uy * prev_axis[1] < 0
-            prev_axis = (ux, uy)
-            if dbg is not None:
-                dbg[wi]["axis_flip"] = bool(flipped)
-                dbg[wi]["axis_ref"] = None if ref is None else (float(ref[0]), float(ref[1]))
+        elif prev_axis is None:
+            if (d < 0) if ref else (uy < 0 or (abs(uy) < 1e-6 and ux < 0)):
+                ux, uy = -ux, -uy
+        elif ux * prev_axis[0] + uy * prev_axis[1] < 0:
+            ux, uy = -ux, -uy
+        flipped = prev_axis is not None and ux * prev_axis[0] + uy * prev_axis[1] < 0
+        prev_axis = (ux, uy)
+        if dbg is not None:
+            dbg[wi]["axis_flip"] = bool(flipped)
+            dbg[wi]["axis_ref"] = None if ref is None else (float(ref[0]), float(ref[1]))
         if dbg is not None:
             dbg[wi]["axis"] = (float(ux), float(uy))
         u = mx * ux + my * uy

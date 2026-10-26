@@ -88,7 +88,30 @@ def roi_size(gy, gx, frac, aspect=0.0):
     return max(2, min(gy, int(round(rh)))), max(2, min(gx, int(round(rw))))
 
 
-def choose_rois(dx, dy, mag, bounds, fps, a, dbg=None):
+def global_axis(dx, dy, mag):
+    """PCA over all flow to estimate the dominant motion direction of the clip."""
+    w = mag.astype(np.float64) ** 2
+    mx, my = dx.astype(np.float64), dy.astype(np.float64)
+    sxx = (w * mx * mx).sum(); syy = (w * my * my).sum(); sxy = (w * mx * my).sum()
+    if sxx + syy < 1e-9:
+        return None
+    _, vecs = np.linalg.eigh(np.array([[sxx, sxy], [sxy, syy]]))
+    return (float(vecs[0, 1]), float(vecs[1, 1]))
+
+
+def _roi_axis(dx, dy, mag, s, e, cy, cx, rh, rw):
+    """PCA axis for a specific ROI window slice."""
+    sl = (slice(s, e), slice(cy, cy + rh), slice(cx, cx + rw))
+    w = mag[sl].astype(np.float64) ** 2
+    mx, my = dx[sl].astype(np.float64), dy[sl].astype(np.float64)
+    sxx = (w * mx * mx).sum(); syy = (w * my * my).sum(); sxy = (w * mx * my).sum()
+    if sxx + syy < 1e-9:
+        return None
+    _, vecs = np.linalg.eigh(np.array([[sxx, sxy], [sxy, syy]]))
+    return (float(vecs[0, 1]), float(vecs[1, 1]))
+
+
+def choose_rois(dx, dy, mag, bounds, fps, a, dbg=None, chap_axis=None):
     """Picks the block of cells with the most oscillatory motion, per time window.
 
     Scores each candidate region by a combination of mean magnitude and
@@ -148,6 +171,13 @@ def choose_rois(dx, dy, mag, bounds, fps, a, dbg=None):
         best_score = scores[best]
         prev_cur, prev_score = cur, cur_score
         switched = cur is None or best_score > a.switch * cur_score
+        axis_lock = getattr(a, "axis_lock", 0.0)
+        if switched and cur is not None and chap_axis is not None and axis_lock > 0.1:
+            cand_ax = _roi_axis(dx, dy, mag, s, e, best[0], best[1], rh, rw)
+            if cand_ax is not None:
+                cos_a = abs(cand_ax[0] * chap_axis[0] + cand_ax[1] * chap_axis[1])
+                if cos_a < np.sin(np.radians(axis_lock)):
+                    switched = False
         if switched:
             cur = best
             cur_score = best_score

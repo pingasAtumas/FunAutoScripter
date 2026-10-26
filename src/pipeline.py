@@ -273,10 +273,11 @@ def build_parser():
     g.add_argument("--period-weight", type=float, default=0.5, help="0 = pick region by magnitude only, 1 = pick by periodicity only")
     g.add_argument("--candidates", type=int, default=6, metavar="N",
                    help="number of region candidates evaluated per window (default 6)")
-    g.add_argument("--axis", default="auto", metavar="auto|y|DEGREES", help="auto = main motion direction by PCA, y = forced vertical, or a number in screen degrees (0 = right, 90 = down) to lock the axis at that angle")
+    g.add_argument("--axis", default="auto", metavar="auto|DEGREES", help="auto = main motion direction by PCA, or a number in screen degrees (0 = right, 90 = down) to lock the axis at that angle")
     g.add_argument("--axis-ref", default="chapter", metavar="chapter|down|up|left|right|auto|DEGREES", help="which end of the motion axis is position 100 (axis only gives the line, not the direction). chapter = the dominant direction of the chapter itself (or video if no chapters), consistent within it; if reversed, use the chapter's invert flag. down, up, left, right = fixed screen direction. auto = continuity only (errors propagate)")
     g.add_argument("--axis-angle", type=float, default=90.0, metavar="DEGREES", help="axis angle when --axis angle: 0 = right, 90 = down (default), 180 = left, 270 = up")
     g.add_argument("--axis-margin", type=float, default=0.35, help="if a window's axis is nearly perpendicular to the reference (cosine below this) the direction is ambiguous and follows the previous window")
+    g.add_argument("--axis-lock", type=float, default=0.0, metavar="DEGREES", help="how strongly to lock the tracking axis to the chapter's dominant direction (0 = no locking, 90 = always use chapter axis). Applied to both ROI selection and per-window PCA.")
     g.add_argument("--noise", type=float, default=0.05, help="flow noise floor in px/frame")
 
     g = ap.add_argument_group("signal")

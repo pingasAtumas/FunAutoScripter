@@ -1,6 +1,6 @@
 # FunAutoScripter
 
-Fast funscript generator for interactive experiences. Runs fully unattended, supports bulk processing, and requires no manual work per video.
+Fast funscript generator for interactive experiences. Runs fully unattended, supports bulk processing, and requires no manual work per video. (At least that's the objective)
 
 Built on classical optical flow (OpenCV Farneback). No AI, no neural networks, no GPU required.
 

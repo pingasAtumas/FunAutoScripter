@@ -7,6 +7,7 @@ Usage:
     python tune.py folder/ -n Tuned         # save as preset "Tuned"
     python tune.py folder/ --starts 5       # 5 random starts (Gauss-Newton each)
     python tune.py folder/ --params switch,period_weight,highpass,lowpass
+    python tune.py folder/ --preset Precise # start from an existing preset
     python tune.py folder/ --list-params    # show available parameters
 
 The folder must contain video files next to their .funscript references with the
@@ -29,7 +30,7 @@ from scipy.optimize import least_squares
 sys.path.insert(0, os.path.dirname(__file__))
 import funautoscripter as fl
 from src.chapters import VIDEO_EXTS
-from src.gui.config import presets_path, load_user_presets, clean_param, PARAM_BY_ATTR, PRESET_ATTRS
+from src.gui.config import presets_path, load_user_presets, clean_param, PARAM_BY_ATTR, PRESET_ATTRS, BUILTIN_PRESETS
 
 # ---------------------------------------------------------------------------
 # Tunable parameters: (default, lo, hi)
@@ -187,6 +188,8 @@ def main():
     ap.add_argument("--seed", type=int, default=0, help="random seed")
     ap.add_argument("--list-params", action="store_true",
                     help="print available tunable parameters and exit")
+    ap.add_argument("--preset", default=None, metavar="NAME",
+                    help="use a saved preset as the first starting point instead of defaults")
     ap.add_argument("--dry-run", action="store_true",
                     help="print the best values without saving the preset")
     # parse_known_args so any extra flags (--sbs, --zoom, --width, --fps, etc.)
@@ -238,18 +241,33 @@ def main():
     rng = np.random.default_rng(args.seed)
     param_specs = {n: ALL_PARAMS[n] for n in param_names}
 
-    # starting point from defaults (normalised to [0,1])
-    x0_default = np.array([
-        (ALL_PARAMS[n][0] - ALL_PARAMS[n][1]) / (ALL_PARAMS[n][2] - ALL_PARAMS[n][1])
-        for n in param_names
-    ])
+    # first starting point: preset (if given) or parameter defaults
+    if args.preset:
+        all_presets = {**{k: v[1] for k, v in BUILTIN_PRESETS.items()}, **load_user_presets()}
+        if args.preset not in all_presets:
+            sys.exit(f"preset '{args.preset}' not found. Available: {', '.join(all_presets)}")
+        preset_vals = all_presets[args.preset]
+        print(f"starting from preset '{args.preset}'")
+        x0_first = np.array([
+            np.clip(
+                (preset_vals.get(n, ALL_PARAMS[n][0]) - ALL_PARAMS[n][1])
+                / (ALL_PARAMS[n][2] - ALL_PARAMS[n][1]),
+                0.0, 1.0,
+            )
+            for n in param_names
+        ])
+    else:
+        x0_first = np.array([
+            (ALL_PARAMS[n][0] - ALL_PARAMS[n][1]) / (ALL_PARAMS[n][2] - ALL_PARAMS[n][1])
+            for n in param_names
+        ])
 
     obj = build_objective(videos, param_names, param_specs)
     best_cost = np.inf
     best_x = None
 
-    starts = [x0_default] + [rng.uniform(0.0, 1.0, len(param_names))
-                              for _ in range(args.starts - 1)]
+    starts = [x0_first] + [rng.uniform(0.0, 1.0, len(param_names))
+                            for _ in range(args.starts - 1)]
 
     for i, x0 in enumerate(starts):
         print(f"\n--- start {i + 1}/{args.starts} ---")

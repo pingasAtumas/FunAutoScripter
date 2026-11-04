@@ -26,7 +26,8 @@ python funautoscripter.py folder/ --recursive --overwrite
 
 - **No AI or neural networks** — pure classical computer vision, runs on any CPU
 - **Optical flow analysis** — detects motion direction, speed and position using Farneback
-- **Automatic ROI selection** — finds the region with the most relevant motion, switches with hysteresis
+- **Automatic ROI selection** — finds the region with the most relevant motion, switches with hysteresis; tunable scoring factors (proximity penalty, chapter gravity, periodicity floor, sinusoidality, calm threshold, score minimum) control stability
+- **Background subtraction** — `--bg-subtract` removes per-frame camera pan/tilt/shake via spatial median of optical flow
 - **Scene cut detection** — handles scene changes; each scene is normalised independently
 - **3D/VR support** — `--sbs` and `--tb` for side-by-side and top-bottom formats
 - **Subtle motion** — `--zoom` crops a small region before downscaling to capture low-amplitude movements
@@ -36,6 +37,7 @@ python funautoscripter.py folder/ --recursive --overwrite
 - **Parallel processing** — `--jobs N` splits long videos into chunks processed in parallel threads
 - **Chapter system** — split a video into chapters with different zoom/region settings via `--chapters`
 - **GUI** — `funautoscripter_gui.py` (DearPyGui) with live parameter sliders, timeline, video preview and batch mode
+- **Parameter tuning** — `tune.py` optimises signal parameters against a folder of reference funscripts using Gauss-Newton / Levenberg-Marquardt; outputs a GUI preset directly
 
 ## Key Parameters
 
@@ -47,6 +49,11 @@ python funautoscripter.py folder/ --recursive --overwrite
 | `--plot FILE` | Save signal debug graphs |
 | `--debug DIR` | Save 6 annotated debug videos |
 | `--max-speed N` | Limit keyframe velocity (default 400 units/s) |
+| `--bg-subtract F` | Subtract camera motion (0–1, 0 = off) |
+| `--bp-q Q` | Bandpass at dominant frequency with quality factor Q (0 = off) |
+| `--roi-dist-weight W` | Penalise region candidates far from the current region (0–2) |
+| `--roi-chapter-weight W` | Pull candidates toward the chapter's most active cell (0–2) |
+| `--roi-score-min T` | Hard minimum effective score required to switch region |
 | `--jobs N` | Parallel flow extraction threads (0 = auto) |
 | `--chapters auto\|FILE` | Chapter definitions for mixed-scene videos |
 

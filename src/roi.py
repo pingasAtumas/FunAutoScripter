@@ -23,12 +23,15 @@ def split_windows(bounds, wl):
     return [tuple(w) for w in out]
 
 
-def periodicity_score(dx, dy, mag, y0, x0, rh, rw, fps, a, ac_out=None):
+def periodicity_score(dx, dy, mag, y0, x0, rh, rw, fps, a, ac_out=None, _sine_out=None):
     """Autocorrelation-based periodicity score for a region.
 
     Projects the motion in the region onto its dominant axis, then computes the
     normalised autocorrelation and returns the strength of the first peak in the
     funscript-relevant range (0.2 s to 4 s period).
+
+    _sine_out: if a list is passed, the sinusoidality score (R² of the best-fit
+    sine at the dominant frequency) is appended to it. 0.0 when no peak is found.
     """
     sl = (slice(None), slice(y0, y0 + rh), slice(x0, x0 + rw))
     mx = dx[sl].astype(np.float64)
@@ -49,6 +52,8 @@ def periodicity_score(dx, dy, mag, y0, x0, rh, rw, fps, a, ac_out=None):
     u = u - u.mean()
     std = u.std()
     if std < 1e-9:
+        if _sine_out is not None:
+            _sine_out.append(0.0)
         return 0.0
     u = u / std
     ac = correlate(u, u, mode="full")[len(u) - 1:]
@@ -57,6 +62,8 @@ def periodicity_score(dx, dy, mag, y0, x0, rh, rw, fps, a, ac_out=None):
     lo = max(1, int(0.2 * fps))
     hi = min(len(ac) - 1, int(4.0 * fps))
     if hi <= lo:
+        if _sine_out is not None:
+            _sine_out.append(0.0)
         return 0.0
     peaks, props = find_peaks(ac[lo:hi + 1], height=0.0)
     lag = None
@@ -65,6 +72,24 @@ def periodicity_score(dx, dy, mag, y0, x0, rh, rw, fps, a, ac_out=None):
     if ac_out is not None:
         # for debug only: the full curve and the chosen peak position
         ac_out.append({"ac": ac, "lo": lo, "hi": hi, "lag": lag})
+    if _sine_out is not None:
+        if lag is not None:
+            t = np.arange(len(u)) / fps
+            f0 = fps / lag
+            sn = np.sin(2.0 * np.pi * f0 * t)
+            cs = np.cos(2.0 * np.pi * f0 * t)
+            ss_sn = np.dot(sn, sn)
+            ss_cs = np.dot(cs, cs)
+            if ss_sn > 1e-9 and ss_cs > 1e-9:
+                r2 = float(np.clip(
+                    (np.dot(u, sn) ** 2 / ss_sn + np.dot(u, cs) ** 2 / ss_cs)
+                    / max(np.dot(u, u), 1e-9),
+                    0.0, 1.0))
+            else:
+                r2 = 0.0
+        else:
+            r2 = 0.0
+        _sine_out.append(r2)
     if lag is None:
         return 0.0
     return float(props["peak_heights"].max())
@@ -117,6 +142,14 @@ def choose_rois(dx, dy, mag, bounds, fps, a, dbg=None, chap_axis=None):
     Scores each candidate region by a combination of mean magnitude and
     periodicity (autocorrelation peak strength), so regions with rhythmic
     back-and-forth motion score higher than equally bright but random noise.
+
+    Extra stability controls (all default to 0 = disabled):
+      roi_dist_weight  — reduces candidate score by distance from the current region,
+                         preventing jumps to a distant area when scores are similar.
+      roi_calm         — vetoes any switch when the window's mean motion is below this
+                         fraction of the chapter average (keeps the region during pauses).
+      roi_period_floor — vetoes any switch when the best candidate's periodicity is below
+                         this absolute threshold (requires the new region to be rhythmic).
     """
     from scipy.signal import convolve2d
     T, gy, gx = mag.shape
@@ -143,6 +176,21 @@ def choose_rois(dx, dy, mag, bounds, fps, a, dbg=None, chap_axis=None):
         return windows, rois, rh, rw
     rh, rw = roi_size(gy, gx, a.roi, getattr(a, "roi_aspect", 0.0))
     kernel = np.ones((rh, rw))
+    roi_dist_weight = getattr(a, "roi_dist_weight", 0.0)
+    roi_calm = getattr(a, "roi_calm", 0.0)
+    roi_period_floor = getattr(a, "roi_period_floor", 0.0)
+    roi_sine_weight = getattr(a, "roi_sine_weight", 0.0)
+    roi_chapter_weight = getattr(a, "roi_chapter_weight", 0.0)
+    max_dist = float(np.sqrt(gy ** 2 + gx ** 2)) if (roi_dist_weight > 0 or roi_chapter_weight > 0) else 1.0
+    chapter_mag = float(mag.mean()) if roi_calm > 0 else 1.0
+    # chapter anchor: top-left corner of the highest-magnitude rh×rw block
+    # averaged over all frames — a stable gravity centre independent of window history
+    if roi_chapter_weight > 0:
+        chap_avg = mag.mean(axis=0).astype(np.float32)
+        S_chap = convolve2d(chap_avg, kernel, mode="valid")
+        chapter_anchor = np.unravel_index(np.argmax(S_chap), S_chap.shape)
+    else:
+        chapter_anchor = None
     cur = None
     cur_score = 0.0
     for wi, (s, e, _) in enumerate(windows):
@@ -156,21 +204,74 @@ def choose_rois(dx, dy, mag, bounds, fps, a, dbg=None, chap_axis=None):
         flat = S_mag_norm.ravel()
         cand_idx = np.argpartition(flat, -n_cand)[-n_cand:]
         scores = {}
+        period_data = {}
         info = []
-        for fi in cand_idx:
+        # always include the current region as a candidate so it can defend its score
+        # via hysteresis even if it dropped out of the top-N magnitude candidates
+        extra_idxs = list(cand_idx)
+        if cur is not None:
+            cur_fi = int(cur[0]) * S_mag_norm.shape[1] + int(cur[1])
+            if cur_fi not in extra_idxs and 0 <= cur[0] < S_mag_norm.shape[0] and 0 <= cur[1] < S_mag_norm.shape[1]:
+                extra_idxs.append(cur_fi)
+        # calm factor: scale all candidate scores by relative window motion.
+        # In quiet windows every candidate scores lower, so the stored score wins
+        # via hysteresis without a hard veto.
+        calm_factor = (min(1.0, float(mag[s:e].mean()) / (chapter_mag * roi_calm + 1e-9))
+                       if roi_calm > 0 else 1.0)
+        for fi in extra_idxs:
             cy, cx = np.unravel_index(fi, S_mag_norm.shape)
             acs = [] if dbg is not None else None
-            p = periodicity_score(dx[s:e], dy[s:e], mag[s:e], cy, cx, rh, rw, fps, a, acs)
-            scores[(cy, cx)] = a.period_weight * p + (1.0 - a.period_weight) * float(S_mag_norm[cy, cx])
+            sine_buf = [] if roi_sine_weight > 0 else None
+            p = periodicity_score(dx[s:e], dy[s:e], mag[s:e], cy, cx, rh, rw, fps, a, acs, sine_buf)
+            sine = sine_buf[0] if sine_buf else 0.0
+            base = a.period_weight * p + (1.0 - a.period_weight) * float(S_mag_norm[cy, cx])
+            # period floor: soft ramp — candidates below the floor score proportionally less
+            if roi_period_floor > 0:
+                base *= min(1.0, p / (roi_period_floor + 1e-9))
+            # sinusoidality: scale score by how closely the motion resembles a pure sine
+            if roi_sine_weight > 0:
+                base *= (1.0 - roi_sine_weight + roi_sine_weight * sine)
+            # chapter gravity: pull toward the chapter's most active region
+            # baked into scores (not in eff) because the anchor is a fixed chapter property
+            if roi_chapter_weight > 0 and chapter_anchor is not None:
+                d_c = np.sqrt((cy - chapter_anchor[0]) ** 2 + (cx - chapter_anchor[1]) ** 2) / max_dist
+                base *= max(0.0, 1.0 - roi_chapter_weight * d_c)
+            # calm factor applied last so it scales the fully-combined score
+            base *= calm_factor
+            scores[(cy, cx)] = base  # raw quality score — distance kept out for hysteresis tracking
+            period_data[(cy, cx)] = p
             if dbg is not None:
-                info.append({"i": len(info), "y": int(cy), "x": int(cx),
-                             "mag": float(S_mag_norm[cy, cx]), "period": float(p),
-                             "score": float(scores[(cy, cx)]),
-                             "ac": acs[0] if acs else None})
-        best = max(scores, key=scores.__getitem__)
-        best_score = scores[best]
+                # effective score = what the program uses to rank candidates (includes distance)
+                eff = base
+                if roi_dist_weight > 0 and cur is not None:
+                    d = np.sqrt((cy - cur[0]) ** 2 + (cx - cur[1]) ** 2) / max_dist
+                    eff = base * max(0.0, 1.0 - roi_dist_weight * d)
+                entry = {"i": len(info), "y": int(cy), "x": int(cx),
+                         "mag": float(S_mag_norm[cy, cx]), "period": float(p),
+                         "score": float(eff),
+                         "ac": acs[0] if acs else None}
+                if roi_sine_weight > 0:
+                    entry["sine"] = float(sine)
+                info.append(entry)
+        # Distance is applied when picking the winner, not baked into scores.
+        # This keeps inspector scores as pure quality values while still penalising
+        # far jumps: a distant candidate must beat the threshold by more.
+        if roi_dist_weight > 0 and cur is not None:
+            def _eff(key, _c=cur, _md=max_dist, _dw=roi_dist_weight, _s=scores):
+                cy, cx = key
+                d = np.sqrt((cy - _c[0]) ** 2 + (cx - _c[1]) ** 2) / _md
+                return _s[key] * max(0.0, 1.0 - _dw * d)
+            best = max(scores, key=_eff)
+            best_eff = _eff(best)
+        else:
+            best = max(scores, key=scores.__getitem__)
+            best_eff = scores[best]
+        best_score = scores[best]  # raw quality score stored for hysteresis next window
         prev_cur, prev_score = cur, cur_score
-        switched = cur is None or best_score > a.switch * cur_score
+        roi_score_min = getattr(a, "roi_score_min", 0.0)
+        switched = cur is None or best_eff > a.switch * cur_score
+        if switched and cur is not None and roi_score_min > 0 and best_eff < roi_score_min:
+            switched = False
         axis_lock = getattr(a, "axis_lock", 0.0)
         if switched and cur is not None and chap_axis is not None and axis_lock > 0.1:
             cand_ax = _roi_axis(dx, dy, mag, s, e, best[0], best[1], rh, rw)

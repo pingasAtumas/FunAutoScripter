@@ -2746,7 +2746,7 @@ class App:
                 b.start, b.duration, b.cache_tag = 0.0, 0.0, ""      # active chapter does not apply in batch
                 if not same:
                     b.region, b.zoom = None, None
-                b.chapters = "auto" if chap else "none"
+                b.chapters = "detect" if chap else "none"
                 b.cache_only = cache_only          # only uses cached flow, never computes it
                 items.append(b)
             workers = max(1, int(getattr(base, "folder_jobs", 1) or 1))
@@ -3274,16 +3274,36 @@ class App:
         d = self.dbg[k]
         fps, a = self.fps(), self.a
         dpg.set_value("in_win", f"Window {k + 1}/{len(self.dbg)}   {d['start'] / fps + a.start:.1f}s to {d['end'] / fps + a.start:.1f}s")
-        dpg.set_value("in_formula", f"score = {a.period_weight:.2f} x P + {1 - a.period_weight:.2f} x M")
+        parts = [f"{a.period_weight:.2f}×P + {1 - a.period_weight:.2f}×M"]
+        pf = getattr(a, "roi_period_floor", 0.0)
+        sw = getattr(a, "roi_sine_weight", 0.0)
+        dw = getattr(a, "roi_dist_weight", 0.0)
+        cl = getattr(a, "roi_calm", 0.0)
+        if pf > 0:
+            parts.append(f"clamp(P/{pf:.2f})")
+        if sw > 0:
+            parts.append(f"({1 - sw:.2f}+{sw:.2f}×S)")
+        cw = getattr(a, "roi_chapter_weight", 0.0)
+        if cl > 0:
+            parts.append(f"clamp(motion/{cl:.2f}×chap)")
+        if cw > 0:
+            parts.append(f"max(0,1-{cw:.2f}×d_chap)")
+        if dw > 0:
+            parts.append(f"max(0,1-{dw:.2f}×dist)")
+        dpg.set_value("in_formula", "score = " + " × ".join(parts))
+        score_min = getattr(a, "roi_score_min", 0.0)
         cands = sorted(d["cands"], key=lambda c: -c["score"])
         for i in range(MAXC):
             if i < len(cands):
                 c = cands[i]
+                valid = score_min == 0.0 or c["score"] >= score_min
                 tag = "*" if (c["y"], c["x"]) == tuple(d["chosen"]) else " "
-                dpg.configure_item(f"ct{i}", default_value=f"{tag}y{c['y']:>2} x{c['x']:>2}  M {c['mag']:.2f}  P {c['period']:.2f}",
+                extra = f"  S {c['sine']:.2f}" if sw > 0 and "sine" in c else ""
+                dpg.configure_item(f"ct{i}", default_value=f"{tag}y{c['y']:>2} x{c['x']:>2}  M {c['mag']:.2f}  P {c['period']:.2f}{extra}",
                                    color=PALETTE_RGB[c["i"] % len(PALETTE_RGB)])
                 dpg.set_value(f"cb{i}", min(max(c["score"], 0.0), 1.0))
-                dpg.configure_item(f"cb{i}", overlay=f"{c['score']:.2f}", show=True)
+                dpg.configure_item(f"cb{i}", overlay=f"{c['score']:.2f}", show=True,
+                                   height=14 if valid else 4)
             else:
                 dpg.configure_item(f"ct{i}", default_value="")
                 dpg.configure_item(f"cb{i}", show=False)
@@ -3361,9 +3381,12 @@ class App:
         if self.vid_progress:
             for ri, (frac, txt) in enumerate(self.vid_progress):
                 if dpg.does_item_exist(f"vp_{ri}"):
-                    show = frac > 0 or bool(txt)
-                    dpg.set_value(f"vp_{ri}", frac)
-                    dpg.configure_item(f"vp_{ri}", overlay=txt, show=show)
+                    try:
+                        show = frac > 0 or bool(txt)
+                        dpg.set_value(f"vp_{ri}", frac)
+                        dpg.configure_item(f"vp_{ri}", overlay=txt, show=show)
+                    except Exception:
+                        pass
         ms = f"   (recompute {self.compute_ms:.0f} ms)" if self.res is not None else ""
         self.set_fitted("status", "status_tip", self.status + ms)
         self.set_fitted("warn", "warn_tip", self.warn_text)

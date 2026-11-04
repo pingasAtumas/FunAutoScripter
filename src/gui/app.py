@@ -2038,8 +2038,8 @@ class App:
         dual = getattr(self.a, "dual_axis", False)
         axis2_id = getattr(self.a, "axis2_id", "L2")
         path2 = fl.axis2_path(path, axis2_id) if dual else None
-        if os.path.exists(path) and not dpg.get_value("b_over"):
-            self.status = f"script already exists — tick 'redo existing scripts' to overwrite"
+        if self.folder_items and os.path.exists(path) and not dpg.get_value("b_over"):
+            self.status = "script already exists — tick 'redo existing scripts' to overwrite"
             return
         if len(self.chapters) > 1:
             self.sync_chapter()

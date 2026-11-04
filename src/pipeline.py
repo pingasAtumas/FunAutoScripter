@@ -270,7 +270,13 @@ def build_parser():
     g.add_argument("--roi-aspect", type=float, default=0.0, help="width/height ratio of the automatic region (1 = square, 2 = twice as wide, 0.5 = twice as tall). 0 inherits the video ratio. Area equals --roi")
     g.add_argument("--roi-window", type=float, default=3.0, help="seconds between region updates")
     g.add_argument("--switch", type=float, default=0.6, help="new region must score this many times better to replace the current one")
+    g.add_argument("--roi-score-min", type=float, default=0.0, help="hard minimum effective score for a region switch — if the best candidate scores below this, the current region is always kept (0 = off)")
     g.add_argument("--period-weight", type=float, default=0.5, help="0 = pick region by magnitude only, 1 = pick by periodicity only")
+    g.add_argument("--roi-dist-weight", type=float, default=0.0, help="scales candidate effective score by distance: max(0, 1 - weight × d/diagonal). At 2.0, all grid borders score 0 when the current region is at center. 0 disables")
+    g.add_argument("--roi-chapter-weight", type=float, default=0.0, help="gravity toward the chapter's highest-magnitude cell: same scale as --roi-dist-weight but anchored to a fixed chapter-level centre, stabilises the first window. 0 disables")
+    g.add_argument("--roi-calm", type=float, default=0.0, help="if a window's average motion is below this fraction of the chapter average, keep the current region without switching (0 = off). Prevents drift during pauses")
+    g.add_argument("--roi-period-floor", type=float, default=0.0, help="minimum periodicity score the best candidate must reach to trigger a switch (0 = off). Requires the new region to have rhythmic motion")
+    g.add_argument("--roi-sine-weight", type=float, default=0.0, help="scales each candidate's score by its sinusoidality: R² of the best-fit sine at the dominant frequency (0 = off, 1 = fully weighted). Penalises irregular or noisy oscillations even when periodic")
     g.add_argument("--candidates", type=int, default=6, metavar="N",
                    help="number of region candidates evaluated per window (default 6)")
     g.add_argument("--axis", default="auto", metavar="auto|DEGREES", help="auto = main motion direction by PCA, or a number in screen degrees (0 = right, 90 = down) to lock the axis at that angle")
@@ -281,6 +287,7 @@ def build_parser():
     g.add_argument("--noise", type=float, default=0.05, help="flow noise floor in px/frame")
 
     g = ap.add_argument_group("signal")
+    g.add_argument("--bg-subtract", type=float, default=0.0, help="subtract per-frame spatial median flow to remove camera motion (0 = off, 1 = full). The median estimates global camera pan/tilt/shake and is subtracted from every cell before analysis")
     g.add_argument("--highpass", type=float, default=0.15, help="Hz, removes drift")
     g.add_argument("--lowpass", type=float, default=5.0, help="Hz, removes jitter")
     g.add_argument("--norm-window", type=float, default=10.0, help="seconds used to scale to 0..100")
@@ -319,6 +326,8 @@ def build_parser():
     g.add_argument("--boost", type=float, default=1.0, help="enhance small movements: above 1 opens light strokes without touching the extremes")
     g.add_argument("--gain", type=float, default=1.0, help="amplitude around the centre after scaling (above 1 increases it)")
     g.add_argument("--offset", type=float, default=0.0, help="shift the centre, in 0-100 units")
+    g.add_argument("--bp-q", type=float, default=0.0, help="bandpass Q centred on the main motion frequency detected by autocorrelation (0 = off). Q = centre frequency / bandwidth: higher Q = narrower band")
+    g.add_argument("--a2-bp-q", type=float, default=0.0)
 
     g = ap.add_argument_group("keyframes")
     g.add_argument("--min-amp", type=float, default=12.0, help="smallest stroke to keep (0-100 units)")

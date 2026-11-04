@@ -6,7 +6,7 @@ import numpy as np
 _A2_ATTRS = ("hp2", "hfboost", "hf_freq", "renorm", "renorm_floor",
              "smooth", "boost", "gain", "offset",
              "highpass", "lowpass", "norm_window", "floor",
-             "min_amp", "min_interval", "max_speed")
+             "min_amp", "min_interval", "max_speed", "bp_q")
 
 
 def build_a2(a):
@@ -18,10 +18,48 @@ def build_a2(a):
         setattr(b, attr, getattr(a, f"a2_{attr}", getattr(a, attr)))
     return b
 from scipy.ndimage import gaussian_filter1d
-from scipy.signal import butter, sosfiltfilt, find_peaks
+from scipy.signal import butter, sosfiltfilt, find_peaks, correlate
 
 from .flow import log
 from .roi import choose_rois, chapter_axis, axis_vec, global_axis
+
+
+def main_frequency(v, fps):
+    """Return the dominant frequency (Hz) from the autocorrelation of v, or 0.0 if none found.
+
+    Finds the first peak of the normalised autocorrelation between 0.2 s and 4 s period,
+    which is the second overall maximum (after lag = 0).
+    """
+    u = np.asarray(v, dtype=float)
+    u = u - u.mean()
+    std = u.std()
+    if std < 1e-9:
+        return 0.0
+    u = u / std
+    ac = correlate(u, u, mode="full")[len(u) - 1:]
+    if ac[0] < 1e-9:
+        return 0.0
+    ac = ac / ac[0]
+    lo = max(1, int(0.2 * fps))
+    hi = min(len(ac) - 1, int(4.0 * fps))
+    if hi <= lo:
+        return 0.0
+    peaks, props = find_peaks(ac[lo:hi + 1], height=0.0)
+    if not len(peaks):
+        return 0.0
+    lag = lo + int(peaks[int(np.argmax(props["peak_heights"]))])
+    return float(fps) / lag
+
+
+def _bp_q_filter(p, fps, f0, q):
+    """Bandpass centred at f0 Hz with quality factor q = f0 / bandwidth."""
+    bw = f0 / max(q, 1e-3)
+    lo = max(0.01, f0 - bw / 2.0)
+    hi = min(fps * 0.49, f0 + bw / 2.0)
+    if lo >= hi:
+        return p
+    sos = butter(2, [lo, hi], btype="band", fs=fps, output="sos")
+    return sosfiltfilt(sos, p, padtype="constant")
 
 
 def velocity(dx, dy, mag, bounds, fps, a, dbg=None):
@@ -193,9 +231,23 @@ def compute(a, dx, dy, mag, dbg=None, a2=None):
         None means use the same settings as a.
     """
     fps = a.fps
+    bg = getattr(a, "bg_subtract", 0.0)
+    if bg > 0.0:
+        # Subtract the per-frame spatial median of dx/dy to remove camera motion.
+        # The median is robust: if the subject occupies < 50% of grid cells it is
+        # dominated by the background and estimates camera pan/tilt/shake correctly.
+        gx = np.median(dx.astype(np.float32), axis=(1, 2), keepdims=True)
+        gy = np.median(dy.astype(np.float32), axis=(1, 2), keepdims=True)
+        dx = dx - bg * gx
+        dy = dy - bg * gy
+        mag = np.sqrt(dx ** 2 + dy ** 2)
     bounds = [0, len(mag)]
     v, windows, rois, grid, v2 = velocity(dx, dy, mag, bounds, fps, a, dbg)
     p = to_position(v, fps, a)
+    if getattr(a, "bp_q", 0.0) > 0.0:
+        f0 = main_frequency(v, fps)
+        if f0 > 0.0:
+            p = _bp_q_filter(p, fps, f0, a.bp_q)
     ps = gaussian_filter1d(p, a.smooth * fps) if a.smooth > 0 else p
     pos = enhance(post_enhance(normalise(ps, fps, a), fps, a), a)
     if a.invert:
@@ -205,6 +257,10 @@ def compute(a, dx, dy, mag, dbg=None, a2=None):
     if v2 is not None:
         b = a2 if a2 is not None else a
         p2 = to_position(v2, fps, b)
+        if getattr(b, "bp_q", 0.0) > 0.0:
+            f0_2 = main_frequency(v2, fps)
+            if f0_2 > 0.0:
+                p2 = _bp_q_filter(p2, fps, f0_2, b.bp_q)
         ps2 = gaussian_filter1d(p2, b.smooth * fps) if b.smooth > 0 else p2
         pos2 = enhance(post_enhance(normalise(ps2, fps, b), fps, b), b)
         if getattr(a, "dual_axis_invert", False):

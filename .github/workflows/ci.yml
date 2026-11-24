@@ -19,7 +19,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install numpy scipy opencv-python matplotlib dearpygui
+        run: pip install numpy scipy opencv-python-headless matplotlib dearpygui
 
       - name: Syntax check — CLI entry point
         run: python -m py_compile funautoscripter.py

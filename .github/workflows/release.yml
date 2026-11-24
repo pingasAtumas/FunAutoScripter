@@ -7,7 +7,11 @@ on:
 
 jobs:
   build-linux:
-    runs-on: ubuntu-latest
+    # Pinned (not ubuntu-latest): PyInstaller bundles shared libs linked against the build
+    # host's glibc, and glibc is forward-only compatible, so a newer runner produces a
+    # binary that fails with "GLIBC_x.xx not found" on older user systems. Use the oldest
+    # still-supported LTS available to maximize compatibility.
+    runs-on: ubuntu-22.04
 
     steps:
       - uses: actions/checkout@v4
@@ -27,7 +31,7 @@ jobs:
 
       - name: Build Linux binaries
         run: |
-          pip install pyinstaller numpy scipy opencv-python matplotlib dearpygui
+          pip install pyinstaller numpy scipy opencv-python-headless matplotlib dearpygui
           pyinstaller --onefile --name funautoscripter \
             --add-binary "ffmpeg:." --add-binary "ffprobe:." \
             funautoscripter.py
@@ -70,7 +74,7 @@ jobs:
 
       - name: Build Windows binaries
         run: |
-          pip install pyinstaller numpy scipy opencv-python matplotlib dearpygui
+          pip install pyinstaller numpy scipy opencv-python-headless matplotlib dearpygui
           pyinstaller --onefile --name funautoscripter --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;." funautoscripter.py
           pyinstaller --onefile --name funautoscripter-gui --add-binary "ffmpeg.exe;." --add-binary "ffprobe.exe;." --add-data "src/gui/default_layout.ini;src/gui" funautoscripter_gui.py
 

@@ -8,7 +8,7 @@ Built on classical optical flow (OpenCV Farneback). No AI, no neural networks, n
 
 ## Requirements
 
-- Python 3 with numpy, scipy, opencv-python, matplotlib (only for `--plot`)
+- Python 3 with numpy, scipy, opencv-python-headless, matplotlib (only for `--plot`)
 - ffmpeg (system)
 - NixOS: use `nix-shell` (see `shell.nix`)
 
@@ -116,7 +116,7 @@ python funautoscripter_gui.py
 ### From source (other Linux / macOS)
 
 ```bash
-pip install numpy scipy opencv-python matplotlib dearpygui
+pip install numpy scipy opencv-python-headless matplotlib dearpygui
 # install ffmpeg via your system package manager
 python funautoscripter.py video.mp4
 ```
@@ -126,7 +126,7 @@ python funautoscripter.py video.mp4
 Self-contained binaries are built with [PyInstaller](https://pyinstaller.org). Run from the project root:
 
 ```bash
-pip install pyinstaller numpy scipy opencv-python matplotlib dearpygui
+pip install pyinstaller numpy scipy opencv-python-headless matplotlib dearpygui
 
 # CLI binary
 pyinstaller --onefile --name funautoscripter funautoscripter.py

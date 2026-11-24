@@ -13,10 +13,10 @@ import dearpygui.dearpygui as dpg
 import funautoscripter as fl
 from src.gui.utils import (crop_rect, fmt_time, mix, line_theme, make_theme, heat_rgb, hue_rgb,
                             nice_step, layout_path, config_path, load_config, OVERLAYS, HEAT)
-from src.gui.config import (CW, CH, MAXC, PALETTE_RGB, PARAMS, TIPS, TIPS_UI, AUTO_HELP, AXMODES,
+from src.gui.config import (CW, CH, PALETTE_RGB, PARAMS, TIPS, TIPS_UI, AXMODES, SEL_MODES,
                             CROPS, OV_H, OV_BAND, CH_COLORS, WINDOWS, THEMES, DEFAULT_THEME,
-                             PRESET_ATTRS, PARAM_BY_ATTR, BUILTIN_PRESETS, presets_path,
-                             clean_param, load_user_presets)
+                             PRESET_ATTRS, PARAM_BY_ATTR, BUILTIN_PRESETS, BOOT_ATTRS, CATEGORIES,
+                             presets_path, clean_param, load_user_presets)
 from src.gui.frame_source import FrameSource
 
 
@@ -176,8 +176,6 @@ class App:
         for tag in OVERLAYS:
             if tag in c.get("overlays", {}):
                 dpg.set_value(tag, bool(c["overlays"][tag]))
-        if "follow" in c:
-            dpg.set_value("follow", bool(c["follow"]))
         if isinstance(c.get("follow_w"), (int, float)):
             dpg.set_value("follow_w", float(c["follow_w"]))
         sp = c.get("speed")
@@ -198,7 +196,6 @@ class App:
             "crop": crop_name,
             "vr_zoom": getattr(a, "vr_zoom", 0.0),
             "overlays": {t: bool(dpg.get_value(t)) for t in OVERLAYS},
-            "follow": bool(dpg.get_value("follow")),
             "follow_w": float(dpg.get_value("follow_w")),
             "speed": dpg.get_value("p_speed"),
             "theme": self.theme_name,
@@ -206,7 +203,6 @@ class App:
             "ov_mode": dpg.get_value("ov_mode"),
             "live": dpg.get_value("p_live"),
             "preset_ref": self.preset_ref,
-            "show_raw": bool(dpg.get_value("show_raw")),
             "last_path": self.cfg.get("ultimo") or self.cfg.get("last_path"),
         }
 
@@ -592,12 +588,18 @@ class App:
         self.build_menu(shown)
         with self.win("w_ctrl", shown):
             with dpg.group(horizontal=True):
-                dpg.add_button(label="Process", tag="btn_process", callback=lambda: self.start_process_current())
-                with dpg.tooltip("btn_process"):
-                    dpg.add_text("Compute flow, generate script and save — all in one step.\n"
-                                 "Uses current parameters and settings.", wrap=320)
-                dpg.add_button(label="Recalculate flow", tag="btn_flow", callback=lambda: self.request_flow())
-                dpg.add_button(label="Save funscript", tag="btn_save_top", callback=lambda: self.save())
+                dpg.add_button(label="1. Open Video", tag="btn_open_video", callback=lambda: dpg.show_item("dlg_file"))
+                dpg.add_button(label="Open Folder", tag="btn_open_folder", callback=lambda: dpg.show_item("dlg_dir"))
+                dpg.add_button(label="2. Process This Video", tag="btn_process", callback=lambda: self.start_process_current())
+                dpg.add_button(label="Process Chapter", tag="btn_flow", callback=lambda: self.request_flow())
+                dpg.add_combo(self.preset_names(), label="preset", tag="p_preset", width=160,
+                              default_value=self.preset_ref, callback=self.on_preset)
+                dpg.add_checkbox(label="invert", tag="p_invert_boot", default_value=bool(self.a.invert),
+                                 callback=lambda s, v: self.on_param(v, ("invert", "bool", "c")))
+                self.txt("warn", "", tag="preset_diff_short", wrap=0)
+                dpg.add_input_text(tag="out_path", label="output", width=220)
+                dpg.add_button(label="3. Save", tag="btn_save_top", callback=lambda: self.save())
+                dpg.add_checkbox(label="redo existing scripts", tag="b_over", default_value=False)
                 dpg.add_button(label="Cancel", tag="btn_cancel", show=False, callback=lambda: self.cancel())
                 dpg.add_progress_bar(tag="prog", width=200, default_value=0.0)
                 dpg.add_text("", tag="status")
@@ -606,38 +608,18 @@ class App:
             self.txt("warn", "", tag="warn")
             with dpg.tooltip("warn"):
                 dpg.add_text("", tag="warn_tip", wrap=600)
-            with dpg.group(tag="batch_ctrl", show=False):
-                dpg.add_separator()
-                self.txt("head", "Batch")
-                dpg.add_checkbox(label="redo existing scripts", tag="b_over", default_value=False)
-                dpg.add_checkbox(label="apply current zoom and region to all", tag="b_same", default_value=False)
-                dpg.add_checkbox(label="detect chapters (and axis-ref)", tag="b_chap", default_value=True)
-                dpg.add_button(label="Process selected", tag="btn_bulk", width=-1,
-                               callback=lambda: self.start_bulk())
-                dpg.add_button(label="Apply settings (without recalculating flow)", tag="btn_bulk_apply",
-                               width=-1, callback=lambda: self.start_bulk(cache_only=True))
-                dpg.add_separator()
-                dpg.add_button(label="Detect chapters for selected", tag="btn_bulk_chap", width=-1,
-                               callback=lambda: self.start_bulk_chapters())
-                with dpg.tooltip("btn_bulk_chap"):
-                    dpg.add_text("Re-detect chapters and save .chapters.json for each marked video.\n"
-                                 "Requires a flow cache. Manually edited chapter files are preserved\n"
-                                 "unless 'redo existing scripts' is checked.", wrap=360)
-                dpg.add_text("", tag="bulk_text", wrap=0)
         with self.win("w_video", shown):
             self.build_video_panel()
         with self.win("w_vidctrl", shown):
             self.build_vidctrl_panel()
+        with self.win("w_chapters", shown):
+            self.build_chapters_panel()
         with self.win("w_ov", shown, no_scrollbar=True):
             self.build_overview()
         with self.win("w_params", shown):
             self.build_params()
-        with self.win("w_insp", shown):
-            self.build_inspector()
         with self.win("w_folder", shown):
             self.build_folder_panel()
-        with self.win("w_status", shown):
-            self.build_status_panel()
         with self.win("w_tl", shown, no_scrollbar=True):
             self.build_timeline()
 
@@ -679,13 +661,13 @@ class App:
         ("I", "invert the active chapter"),
         ("[ and ]", "previous and next chapter"),
         ("Home", "start of the active chapter"),
-        ("D", "draw axis-ref direction on the video"),
+        ("D", "toggle direction mode (where 100 points)"),
         ("Enter", "apply pending slider changes"),
         ("Ctrl+O", "open video"),
         ("Ctrl+Shift+O", "open folder"),
         ("Ctrl+S", "save the funscript"),
         ("Esc", "cancel computation"),
-        ("R", "recalculate flow"),
+        ("R", "process chapter (calculate flow)"),
         ("N", "new chapter at cursor"),
         ("G", "suggest chapters (automatic)"),
     ]
@@ -823,7 +805,7 @@ class App:
             dpg.configure_item(item, color=sp[kind])
         for tag in self.series_rgb:
             self.bind_series(tag)
-        for i in range(5):
+        for i in range(2):
             if dpg.does_item_exist(f"ph{i}"):
                 dpg.configure_item(f"ph{i}", color=list(sp["fg"]) + [200])
         for n in THEMES:
@@ -862,7 +844,7 @@ class App:
             "w_video": (0, y1, vw, rh),
             "w_vidctrl": (0, y1 + rh, vw, vidctrl_h),
             "w_params": (vw, y1, pw, rh + vidctrl_h),
-            "w_insp": (vw + pw, y1, iw, rh + vidctrl_h),
+            "w_chapters": (vw + pw, y1, iw, rh + vidctrl_h),
             "w_folder": (max(0, W - 330), y1, 330, rh + vidctrl_h),
             "w_ov": (0, y1 + rh + vidctrl_h, W, ov_h),
             "w_tl": (0, y1 + rh + vidctrl_h + ov_h, W, max(200, H - (y1 + rh + vidctrl_h + ov_h))),
@@ -887,204 +869,181 @@ class App:
         with dpg.group(horizontal=True):
             dpg.add_button(label="Play/Pause", tag="btn_play", callback=lambda: self.toggle_play())
             dpg.add_combo(["0.25x", "0.5x", "1x", "2x"], default_value="1x", width=70, tag="p_speed", callback=self.on_speed)
-            self.txt("muted", "seek in the Overview window")
         with dpg.group(horizontal=True):
             dpg.add_text("", tag="t_label")
             dpg.add_text("Loading...", tag="t_loading", color=(220, 60, 60), show=False)
-        with dpg.group(horizontal=True):
-            dpg.add_checkbox(label="follow cursor", tag="follow", default_value=True)
-            dpg.add_slider_float(label="width (s)", tag="follow_w", default_value=20.0, min_value=3.0,
-                                 max_value=120.0, format="%.0f", width=140,
-                                 callback=lambda s, v: self._record_slider(s, "follow_w", "%.0f"))
         dpg.add_separator()
-        self.txt("muted", "Overlays")
+        self.txt("head", "Overlays")
         with dpg.group(horizontal=True):
             dpg.add_checkbox(label="ROI", tag="ly_roi", default_value=True)
             dpg.add_checkbox(label="candidates", tag="ly_cand", default_value=True)
             dpg.add_checkbox(label="window average", tag="ly_heat", default_value=False)
+        with dpg.group(horizontal=True):
             dpg.add_checkbox(label="frame magnitude", tag="ly_mag", default_value=False)
             dpg.add_checkbox(label="periodicity", tag="ly_per", default_value=False)
             dpg.add_checkbox(label="axis", tag="ly_axis", default_value=True)
-        dpg.add_separator()
-        self.txt("muted", "Selection")
-        with dpg.group(horizontal=True):
-            dpg.add_radio_button(["none", "region", "zoom", "direction"], horizontal=True, default_value="none",
-                                 tag="sel_mode", callback=lambda s, v: self.set_mode({"none": "none", "region": "region", "zoom": "zoom", "direction": "axis"}[v]))
-        with dpg.group(horizontal=True):
-            dpg.add_button(label="Apply selection", tag="b_sel_apply", callback=lambda: self.apply_selection())
-            dpg.add_button(label="Clear", tag="b_sel_clear", callback=lambda: self.clear_selection())
-        dpg.add_text("region: automatic   zoom: none", tag="sel_text")
+
+    def render_group_rows(self, grp):
+        specs = [s for s in PARAMS if s[0] == grp and s[1] not in BOOT_ATTRS]
+        for spec in specs:
+            grp_, attr, label, kind, lo, hi, fmt, stage = spec
+            val = getattr(self.a, attr)
+            cb = self.make_cb((attr, kind, stage))
+            tag = "p_" + attr
+            show = (attr != "axis_angle" or getattr(self.a, "axis", "auto") == "angle")
+            with dpg.group(horizontal=True, show=show, tag=f"pg_{attr}"):
+                btn = dpg.add_button(label="R", width=18, tag=f"rb_{attr}",
+                                     callback=self._on_reset_btn, user_data=attr)
+                with dpg.tooltip(btn):
+                    dpg.add_text("Reset to preset value")
+                if kind == "float":
+                    dpg.add_slider_float(label=label, tag=tag, default_value=float(val), min_value=lo, max_value=hi,
+                                         format=fmt, callback=cb, width=160)
+                elif kind == "int":
+                    dpg.add_slider_int(label=label, tag=tag, default_value=int(val), min_value=lo, max_value=hi,
+                                       callback=cb, width=160)
+                elif kind == "bool":
+                    dpg.add_checkbox(label=label, tag=tag, default_value=bool(val), callback=cb)
+                else:
+                    dpg.add_combo(hi, label=label, tag=tag, default_value=str(val), callback=cb, width=160)
+
+    def build_category_content(self, idx):
+        name, groups = CATEGORIES[idx]
+        if name == "VR / 3D":
+            dpg.add_text("3D/VR Crop")
+            dpg.add_combo(list(CROPS), default_value=next((k for k, v in CROPS.items() if v == self.a.crop), "full video"),
+                         width=200, tag="p_crop", callback=self.on_crop)
+            is_vr = self.a.crop in ("left", "right", "top", "bottom")
+            dpg.add_slider_int(label="VR edge crop %", tag="p_vr_zoom", min_value=0, max_value=50,
+                               default_value=int(round(getattr(self.a, "vr_zoom", 0.0) * 100)),
+                               width=170, show=is_vr, callback=self.on_vr_zoom)
+            return
+        if name == "Presets":
+            self.txt("muted", "", tag="preset_info", wrap=0)
+            self.txt("warn", "", tag="preset_diff", wrap=0)
+            dpg.add_button(label="Reset to preset", tag="b_pre_reset", show=False, callback=lambda: self.reset_to_preset())
+            with dpg.group(horizontal=True):
+                dpg.add_input_text(tag="preset_name", hint="name", width=130)
+                dpg.add_button(label="Save", tag="b_pre_save", callback=lambda: self.save_preset())
+                dpg.add_button(label="Delete", tag="b_pre_del", callback=lambda: self.delete_preset())
+            return
+        for grp in groups:
+            slug = grp.lower().replace(" ", "_")
+            dual = getattr(self.a, "dual_axis", False)
+            link = getattr(self.a, "a2_link", True)
+            show_grp = grp != "Axis 2" or (dual and not link)
+            with dpg.group(tag=f"catgrp_{slug}", show=show_grp):
+                if len(groups) > 1:
+                    self.txt("head", grp)
+                self.render_group_rows(grp)
+            if grp != groups[-1]:
+                dpg.add_separator()
+
+    def on_settings_cat(self, sender, app_data, user_data):
+        for i in range(len(CATEGORIES)):
+            dpg.set_value(f"settingscat_{i}", i == user_data)
+            dpg.configure_item(f"settingscat_content_{i}", show=(i == user_data))
+        self.refresh_diff()
 
     def build_params(self):
-        dpg.add_text("3D/VR Crop")
-        dpg.add_combo(list(CROPS), default_value=next((k for k, v in CROPS.items() if v == self.a.crop), "full video"), width=200, tag="p_crop", callback=self.on_crop)
-        is_vr = self.a.crop in ("left", "right", "top", "bottom")
-        dpg.add_slider_int(label="VR edge crop %", tag="p_vr_zoom", min_value=0, max_value=50,
-                           default_value=int(round(getattr(self.a, "vr_zoom", 0.0) * 100)),
-                           width=170, show=is_vr, callback=self.on_vr_zoom)
         with dpg.group(horizontal=True):
             dpg.add_checkbox(label="recalculate while dragging", tag="p_live", default_value=bool(self.cfg.get("live", True)),
                              callback=lambda s, v: self.on_live(v))
             dpg.add_button(label="Apply changes", tag="btn_apply", callback=lambda: self.apply_pending())
-        self.txt("muted", "Without the checkbox, sliders only change the value and calculation happens on the button.", wrap=0)
-        dpg.add_checkbox(label="invert this chapter", tag="chap_inv", callback=self.on_chap_invert)
-        self.txt("muted", "To correct the direction at the end. Saved to the video's .chapters.json.", wrap=0)
-        dpg.add_checkbox(label="exclude from Save", tag="chap_excl", callback=self.on_chap_exclude)
-        self.txt("muted", "Chapter contributes no keyframes when saving. Flow cache is kept.", wrap=0)
-        self.txt("head", "Chapter direction (axis-ref)")
-        dpg.add_combo(AXMODES, tag="chap_axmode", default_value=AXMODES[0], width=200)
-        dpg.add_slider_int(label="angle (°)", tag="chap_ang", default_value=90, min_value=0, max_value=359, width=170)
+        dpg.add_separator()
         with dpg.group(horizontal=True):
-            dpg.add_button(label="Apply direction", tag="btn_apply_axis", callback=lambda: self.apply_chap_axis())
-            dpg.add_button(label="Draw on video", tag="b_axis_draw", callback=lambda: self.set_mode("axis"))
+            with dpg.child_window(width=180, height=-1, tag="settings_sidebar"):
+                for i, (name, _) in enumerate(CATEGORIES):
+                    dpg.add_selectable(label=name, tag=f"settingscat_{i}", default_value=(i == 0),
+                                       callback=self.on_settings_cat, user_data=i)
+            with dpg.child_window(width=-1, height=-1, tag="settings_content"):
+                for i in range(len(CATEGORIES)):
+                    with dpg.group(tag=f"settingscat_content_{i}", show=(i == 0)):
+                        self.build_category_content(i)
+        self.refresh_diff()
+
+    def build_chapters_panel(self):
+        self.txt("head", "Tracking")
+        sel_labels = [label for _, label in SEL_MODES]
+        sel_by_label = {label: mode for mode, label in SEL_MODES}
+        dpg.add_radio_button(sel_labels, default_value=sel_labels[0], tag="sel_mode",
+                             callback=lambda s, v: self.set_mode(sel_by_label[v]))
+        with dpg.group(horizontal=True):
+            dpg.add_button(label="Apply selection", tag="b_sel_apply", callback=lambda: self.apply_selection())
+            dpg.add_button(label="Clear", tag="b_sel_clear", callback=lambda: self.clear_selection())
+        dpg.add_text("region: automatic   crop: none", tag="sel_text")
+        dpg.add_separator()
+        self.txt("head", "Direction")
+        dpg.add_checkbox(label="invert this chapter", tag="chap_inv", callback=self.on_chap_invert)
+        dpg.add_checkbox(label="exclude from Save", tag="chap_excl", callback=self.on_chap_exclude)
+        dpg.add_combo(AXMODES, tag="chap_axmode", default_value=AXMODES[0], width=200)
+        dpg.add_slider_int(label="angle (deg)", tag="chap_ang", default_value=90, min_value=0, max_value=359, width=170)
+        dpg.add_button(label="Apply direction", tag="btn_apply_axis", callback=lambda: self.apply_chap_axis())
         self.txt("muted", "", tag="chap_axinfo", wrap=0)
         self.txt("head", "Chapter axis")
         dpg.add_combo(["inherit", "auto", "angle"], tag="chap_axis", default_value="inherit", width=130,
                       callback=lambda s, v: dpg.configure_item("chap_axis_ang", show=(v == "angle")))
-        dpg.add_slider_float(label="angle (°)", tag="chap_axis_ang", default_value=90.0, min_value=0.0, max_value=360.0,
+        dpg.add_slider_float(label="angle (deg)", tag="chap_axis_ang", default_value=90.0, min_value=0.0, max_value=360.0,
                              format="%.1f", width=170, show=False)
-        dpg.add_button(label="Apply axis", tag="btn_apply_chap_axis", callback=lambda: self.apply_chap_axis_mode())
-        self.txt("muted", "inherit = use the global axis setting from the parameters panel.", wrap=0)
-        dpg.add_separator()
-        self.txt("head", "Presets")
-        dpg.add_combo(self.preset_names(), tag="p_preset", width=200, default_value=self.preset_ref, callback=self.on_preset)
-        self.txt("muted", "", tag="preset_info", wrap=0)
-        self.txt("warn", "", tag="preset_diff", wrap=0)
-        dpg.add_button(label="Reset to preset", tag="b_pre_reset", show=False, callback=lambda: self.reset_to_preset())
         with dpg.group(horizontal=True):
-            dpg.add_input_text(tag="preset_name", hint="name", width=130)
-            dpg.add_button(label="Save", tag="b_pre_save", callback=lambda: self.save_preset())
-            dpg.add_button(label="Delete", tag="b_pre_del", callback=lambda: self.delete_preset())
-        self.txt("muted", "Signal parameters only. Does not affect flow or invert.", wrap=0)
-        with dpg.collapsing_header(label="Chapters (automatic or manual)", default_open=True, tag="chap_hdr"):
-            self.txt("muted", "Each chapter has its own axis-ref, zoom and region. The funscript joins them "
-                              "over time. Without chapters, the whole video is one.", wrap=0)
-            dpg.add_button(label="Suggest chapters (automatic)", width=-1, tag="btn_suggest",
-                           callback=lambda: self.suggest_chapters())
-            self.txt("muted", "Detects cuts and axis or zone changes from the full video flow and assigns "
-                              "each chapter its axis-ref. Settings are in \"Auto Chapters\".", wrap=0)
-            dpg.add_listbox(items=[], tag="chap_list", num_items=2, width=-1, callback=self.on_pick_chapter)
-            with dpg.group(horizontal=True):
-                dpg.add_button(label="New chapter at cursor", tag="b_chap_new", callback=lambda: self.new_chapter())
-                dpg.add_button(label="Remove", tag="b_chap_del", callback=lambda: self.remove_chapter())
-                dpg.add_button(label="Remove all", tag="b_chap_del_all", callback=lambda: self.remove_all_chapters())
-            dpg.add_button(label="Compute flow for all chapters", tag="b_chap_flow", width=-1, callback=lambda: self.start_chapters_flow())
-            dpg.add_text("", tag="chap_text", wrap=0)
-        groups = {}
-        for spec in PARAMS:
-            grp = spec[0]
-            groups.setdefault(grp, []).append(spec)
-
-        OPEN_GROUPS = {"Enhancement", "Region", "Signal", "Keyframes"}
-        for grp, specs in groups.items():
-            tag_hdr = "phdr_" + grp.lower().replace(" ", "_").replace("(", "").replace(")", "")
-            show_grp = (grp != "Axis 2" or
-                        (getattr(self.a, "dual_axis", False) and not getattr(self.a, "a2_link", True)))
-            with dpg.collapsing_header(label=grp, default_open=(grp in OPEN_GROUPS), tag=tag_hdr,
-                                       show=show_grp):
-                if grp == "Auto Chapters":
-                    self.txt("muted", AUTO_HELP, wrap=0)
-                if grp == "Axis 2":
-                    self.txt("muted", "Independent signal settings for the perpendicular axis.\n"
-                             "Only active when 'same settings as axis 1' is unchecked.", wrap=0)
-                for spec in specs:
-                    grp_, attr, label, kind, lo, hi, fmt, stage = spec
-                    val = getattr(self.a, attr)
-                    cb = self.make_cb((attr, kind, stage))
-                    tag = "p_" + attr
-                    show = (attr != "axis_angle" or getattr(self.a, "axis", "auto") == "angle")
-                    with dpg.group(horizontal=True, show=show, tag=f"pg_{attr}"):
-                        btn = dpg.add_button(label="R", width=18, tag=f"rb_{attr}",
-                                            callback=self._on_reset_btn, user_data=attr)
-                        with dpg.tooltip(btn):
-                            dpg.add_text("Reset to preset value")
-                        if kind == "float":
-                            dpg.add_slider_float(label=label, tag=tag, default_value=float(val), min_value=lo, max_value=hi,
-                                                 format=fmt, callback=cb, width=160)
-                        elif kind == "int":
-                            dpg.add_slider_int(label=label, tag=tag, default_value=int(val), min_value=lo, max_value=hi,
-                                               callback=cb, width=160)
-                        elif kind == "bool":
-                            dpg.add_checkbox(label=label, tag=tag, default_value=bool(val), callback=cb)
-                        else:
-                            dpg.add_combo(hi, label=label, tag=tag, default_value=str(val), callback=cb, width=160)
+            dpg.add_button(label="Apply axis", tag="btn_apply_chap_axis", callback=lambda: self.apply_chap_axis_mode())
+            dpg.add_button(label="Draw on video", tag="b_chap_axis_draw", callback=lambda: self.set_mode("axisangle"))
         dpg.add_separator()
-        dpg.add_text("Save")
-        dpg.add_input_text(tag="out_path", width=-1)
-        dpg.add_button(label="Save funscript", tag="b_save", callback=lambda: self.save())
-        self.refresh_diff()
-
-    def build_inspector(self):
-        self.txt("text", "", tag="in_win")
-        self.txt("muted", "", tag="in_formula")
-        for i in range(MAXC):
-            with dpg.group(horizontal=True):
-                dpg.add_text("", tag=f"ct{i}")
-                dpg.add_progress_bar(tag=f"cb{i}", width=110, default_value=0.0)
-        dpg.add_text("", tag="in_prev")
-        dpg.add_text("", tag="in_thr")
-        dpg.add_text("", tag="in_best")
-        dpg.add_text("", tag="in_dec", color=(255, 255, 255))
+        self.txt("head", "Manage")
+        dpg.add_button(label="Suggest chapters (automatic)", width=-1, tag="btn_suggest",
+                       callback=lambda: self.suggest_chapters())
+        dpg.add_listbox(items=[], tag="chap_list", num_items=4, width=-1, callback=self.on_pick_chapter)
+        with dpg.group(horizontal=True):
+            dpg.add_button(label="New chapter at cursor", tag="b_chap_new", callback=lambda: self.new_chapter())
+            dpg.add_button(label="Remove", tag="b_chap_del", callback=lambda: self.remove_chapter())
+            dpg.add_button(label="Remove all", tag="b_chap_del_all", callback=lambda: self.remove_all_chapters())
+        dpg.add_button(label="Calculate flow for all chapters", tag="b_chap_flow", width=-1, callback=lambda: self.start_chapters_flow())
+        dpg.add_text("", tag="chap_text", wrap=0)
         dpg.add_separator()
-        dpg.add_text("Autocorrelation by candidate (s)")
-        with dpg.plot(height=170, width=-1, no_title=True, no_menus=True, no_box_select=True):
-            dpg.add_plot_axis(dpg.mvXAxis, tag="ac_x")
-            with dpg.plot_axis(dpg.mvYAxis, tag="ac_y"):
-                for i in range(MAXC):
-                    dpg.add_line_series([0.0, 1.0], [0.0, 0.0], tag=f"ac{i}", show=False)
-                    dpg.bind_item_theme(f"ac{i}", self.cand_themes[i % len(self.cand_themes)])
-            dpg.set_axis_limits("ac_y", -1.0, 1.05)
+        self.txt("head", "Auto Detection")
+        self.render_group_rows("Auto Chapters")
 
     def build_timeline(self):
-        names = ["ROI", "Vel.", "Integral", "Script", "Script vel."]
-        show_raw = bool(self.cfg.get("show_raw", False))
+        names = ["Integral", "Script"]
         with dpg.group(horizontal=True):
-            dpg.add_checkbox(label="raw integral (right axis)", tag="show_raw", default_value=show_raw,
-                             callback=lambda s, v: self.on_show_raw(bool(v)))
-            self.txt("muted", "Vel. and Integral scales follow only the visible range.")
+            dpg.add_slider_float(label="follow width (s)", tag="follow_w", default_value=20.0, min_value=3.0,
+                                 max_value=120.0, format="%.0f", width=140,
+                                 callback=lambda s, v: self._record_slider(s, "follow_w", "%.0f"))
         with dpg.group(horizontal=True, tag="ax_view_row", show=False):
             dpg.add_text("View axis:")
             dpg.add_radio_button(["Primary", "Secondary"], tag="ax_view", horizontal=True,
                                  default_value="Primary", callback=self.on_ax_view)
             dpg.add_text("", tag="ax_view_label", color=(180, 180, 180))
-        with dpg.subplots(5, 1, tag="subs", width=-1, height=-1, link_all_x=True, no_title=True,
-                          row_ratios=[1.0, 1.0, 1.0, 1.4, 1.0]):
+        with dpg.subplots(2, 1, tag="subs", width=-1, height=-1, link_all_x=True, no_title=True,
+                          row_ratios=[1.0, 1.4]):
             for i, name in enumerate(names):
                 with dpg.plot(tag=f"pl{i}", no_title=True, no_box_select=True):
                     dpg.add_plot_legend(location=dpg.mvPlot_Location_NorthWest)
                     # time ticks only on the last row; others gain height (x axis is shared)
-                    dpg.add_plot_axis(dpg.mvXAxis, tag=f"tx{i}", no_label=True, no_tick_labels=(i < 4))
+                    dpg.add_plot_axis(dpg.mvXAxis, tag=f"tx{i}", no_label=True, no_tick_labels=(i < 1))
                     # range_fit: vertical scale adjusts only to points in the visible time range.
                     # Without this, the integral (which has drift) squashes the signal of interest.
-                    with dpg.plot_axis(dpg.mvYAxis, tag=f"ty{i}", label=name, auto_fit=(i in (1, 2)),
-                                       range_fit=(i in (1, 2))):
+                    with dpg.plot_axis(dpg.mvYAxis, tag=f"ty{i}", label=name, auto_fit=(i == 0),
+                                       range_fit=(i == 0)):
                         pass
-                    if i == 2:
-                        dpg.add_plot_axis(dpg.mvYAxis2, tag="ty2b", label="raw", auto_fit=True, range_fit=True,
-                                          opposite=True, show=show_raw)
+                    if i == 0:
+                        dpg.add_plot_axis(dpg.mvYAxis2, tag="ty0b", label="raw", auto_fit=True, range_fit=True,
+                                          opposite=True)
                     dpg.add_drag_line(tag=f"ph{i}", default_value=0.0, vertical=True, show_label=False,
                                       color=list(self.pal["fg"]) + [200], callback=self.on_playhead)
-        spec = [(0, "s_mag", "magnitude", (255, 160, 60)), (0, "s_per", "periodicity", (60, 220, 255)),
-                (0, "s_score", "score", (80, 220, 80)), (0, "s_best", "best candidate", (170, 170, 170)),
-                (1, "s_v", "velocity", (255, 220, 60)),
-                (2, "s_p", "filtered", (255, 160, 60)),
-                (3, "s_pos", "signal", (150, 150, 150)), (3, "s_fs", "funscript", "fg"),
-                (4, "s_spd", "u/s", (80, 220, 80))]
+        spec = [(0, "s_p", "filtered", (255, 160, 60)),
+                (1, "s_pos", "signal", (150, 150, 150)),
+                (1, "s_fs", "funscript", "fg")]
         for row, tag, label, rgb in spec:
             dpg.add_line_series([0.0, 1.0], [0.0, 0.0], label=label, tag=tag, parent=f"ty{row}")
             self.series_rgb[tag] = (rgb, 1.5)
-        dpg.add_line_series([0.0, 1.0], [0.0, 0.0], label="raw integral", tag="s_raw", parent="ty2b", show=show_raw)
+        dpg.add_line_series([0.0, 1.0], [0.0, 0.0], label="raw integral", tag="s_raw", parent="ty0b")
         self.series_rgb["s_raw"] = ((90, 150, 255), 1.0)
-        dpg.add_scatter_series([0.0], [0.0], label="keyframes", tag="s_kf", parent="ty3")
-        dpg.set_axis_limits("ty0", 0.0, 1.1)
-        dpg.set_axis_limits("ty3", -3.0, 103.0)
+        dpg.add_scatter_series([0.0], [0.0], label="keyframes", tag="s_kf", parent="ty1")
+        dpg.set_axis_limits("ty1", -3.0, 103.0)
 
     def on_resize(self):
         pass
-
-    def on_show_raw(self, on):
-        dpg.configure_item("s_raw", show=on)
-        dpg.configure_item("ty2b", show=on)
 
     def on_ax_view(self, sender, value):
         self.show_axis = "secondary" if value == "Secondary" else "primary"
@@ -1095,30 +1054,24 @@ class App:
         r = self.res
         if r is None:
             return
-        fps = self.fps()
         dual = getattr(self.a, "dual_axis", False)
         sec = dual and self.show_axis == "secondary" and r.get("v2") is not None
         tl = r["t"].tolist()
         if sec:
             kx, ky, fs = r["kx2"], r["ky2"], r["fs2"]
-            v   = r["v2"]
             p   = r.get("p2", r["p"])
             raw = np.cumsum(r["v2"])
             pos = r.get("pos2", r["pos"])
-            spd = np.gradient(fs) * fps
         else:
             kx, ky, fs = r["kx"], r["ky"], r["fs"]
-            v, p, raw, pos, spd = r["v"], r["p"], r["raw"], r["pos"], r["fs_speed"]
+            p, raw, pos = r["p"], r["raw"], r["pos"]
         dpg.set_value("s_kf",  [kx.tolist(), ky.tolist()])
         dpg.set_value("s_fs",  [tl, fs.tolist()])
-        dpg.set_value("s_v",   [tl, v.tolist()])
         dpg.set_value("s_p",   [tl, p.tolist()])
         dpg.set_value("s_raw", [tl, raw.tolist()])
         dpg.set_value("s_pos", [tl, pos.tolist()])
-        dpg.set_value("s_spd", [tl, spd.tolist()])
         invert = (getattr(self.a, "dual_axis_invert", False) if sec else self.eff_invert())
         up = "0" if invert else "100"
-        dpg.configure_item("s_v",   label=f"velocity (+ = {up})")
         dpg.configure_item("s_p",   label=f"filtered (+ = {up})")
         dpg.configure_item("s_raw", label=f"raw (+ = {up})")
         if dpg.does_item_exist("ax_view_row"):
@@ -1329,10 +1282,9 @@ class App:
     def scrub_to(self, t):
         self.playing = False
         self.set_time(t)
-        if dpg.get_value("follow"):
-            wd = dpg.get_value("follow_w")
-            for i in range(5):
-                dpg.set_axis_limits(f"tx{i}", self.t - wd * 0.5, self.t + wd * 0.5)
+        wd = dpg.get_value("follow_w")
+        for i in range(2):
+            dpg.set_axis_limits(f"tx{i}", self.t - wd * 0.5, self.t + wd * 0.5)
 
     def handle_overview(self):
         if self.src is None or not dpg.is_item_visible("ov_dl"):
@@ -1637,8 +1589,8 @@ class App:
     def _refresh_a2_visibility(self):
         dual = getattr(self.a, "dual_axis", False)
         link = getattr(self.a, "a2_link", True)
-        if dpg.does_item_exist("phdr_axis_2"):
-            dpg.configure_item("phdr_axis_2", show=(dual and not link))
+        if dpg.does_item_exist("catgrp_axis_2"):
+            dpg.configure_item("catgrp_axis_2", show=(dual and not link))
 
     def _refresh_axis_angle_visibility(self):
         show = getattr(self.a, "axis", "auto") == "angle"
@@ -1725,8 +1677,6 @@ class App:
 
     def refresh_diff(self):
         """Marks parameters that differ from the reference preset and lists which ones."""
-        if not dpg.does_item_exist("preset_diff"):
-            return
         ref = self.preset_ref
         vals = self.ref_values(ref)
         fmt = lambda v: f"{v:g}" if isinstance(v, (int, float)) and not isinstance(v, bool) else str(v)
@@ -1743,6 +1693,10 @@ class App:
                 dpg.configure_item(tag, label=label + (" *" if diff else ""))
             if diff:
                 changed.append(f"{label}: {fmt(r)} -> {fmt(cur)}")
+        if dpg.does_item_exist("preset_diff_short"):
+            dpg.set_value("preset_diff_short", f"{len(changed)} changed" if changed else "")
+        if not dpg.does_item_exist("preset_diff"):
+            return
         dpg.set_value("preset_info", self.preset_desc(ref))
         if changed:
             shown = "; ".join(changed[:6]) + (f"; and {len(changed) - 6} more" if len(changed) > 6 else "")
@@ -1844,8 +1798,9 @@ class App:
             if ci != self.active and not self.busy():
                 self.activate(ci, jump=False)
         self.mode = mode
-        names = {"none": "none", "region": "region", "zoom": "zoom", "axis": "direction"}
-        dpg.set_value("sel_mode", names[mode])
+        label = dict(SEL_MODES).get(mode)
+        if label is not None:
+            dpg.set_value("sel_mode", label)
         self.axis_drag = None
         self.rect_reset = mode in ("region", "zoom")
         self.dirty_view = True
@@ -1879,7 +1834,7 @@ class App:
 
     def handle_mouse(self):
         """Draw, move or resize the rectangle with the mouse (dpg's drag_rect was not visible in this plot)."""
-        if self.mode == "axis":
+        if self.mode in ("axis", "axisangle"):
             down = dpg.is_mouse_button_down(0)
             m = self.mouse_px()
             if down and m is not None:
@@ -1893,7 +1848,10 @@ class App:
                 self.axis_drag = None
                 n = float(np.hypot(x1 - x0, y1 - y0))
                 if n >= 14:
-                    self.set_axis_ref_from_screen((x1 - x0) / n, (y1 - y0) / n)
+                    if self.mode == "axis":
+                        self.set_axis_ref_from_screen((x1 - x0) / n, (y1 - y0) / n)
+                    else:
+                        self.set_chap_axis_from_screen((x1 - x0) / n, (y1 - y0) / n)
                     self.set_mode("none")
                 self.dirty_view = True
             return
@@ -1953,6 +1911,12 @@ class App:
                 cv2.arrowedLine(canvas, (x0, y0), (x1, y1), (255, 220, 0), 3, tipLength=0.18)
                 fl.put(canvas, "100", (x1 + 6, y1 - 6), 0.5, (255, 220, 0))
             return
+        if self.mode == "axisangle":
+            fl.put(canvas, "drag to set the motion axis", (10, CH - 10), 0.5, (255, 220, 0))
+            if self.axis_drag is not None:
+                x0, y0, x1, y1 = [int(v) for v in self.axis_drag]
+                cv2.line(canvas, (x0, y0), (x1, y1), (255, 220, 0), 3)
+            return
         if self.mode == "none" or self.sel is None:
             return
         x0, y0, x1, y1 = [int(round(v)) for v in self.sel]
@@ -1977,7 +1941,7 @@ class App:
         spec = f"{x0:.4f}:{y0:.4f}:{x1:.4f}:{y1:.4f}"
         if self.mode == "region":
             if self.geometry_stale():
-                self.status = "recalculate flow before choosing the region (crop or zoom changed)"
+                self.status = "process chapter before choosing the region (crop or zoom changed)"
                 return
             self.a.region = spec
             self.request_compute()
@@ -1994,6 +1958,9 @@ class App:
             dpg.set_value("chap_axmode", AXMODES[0])
             self.set_mode("none")
             self.chapter_changed()
+            return
+        if self.mode == "axisangle":              # cancel drawing without touching region/zoom
+            self.set_mode("none")
             return
         if self.mode == "region" or (self.mode == "none" and self.a.region and not self.a.zoom):
             self.a.region = None
@@ -2015,12 +1982,12 @@ class App:
         self.warn_key = key
         if no_flow:
             self.warn_text = ("Warning: this video has no computed flow yet. Set the crop and zoom while watching "
-                              "the video, then click Recalculate flow when ready.")
+                              "the video, then click Process Chapter when ready.")
             dpg.bind_item_theme("btn_flow", self.th_stale)
         elif rs:
             geo = self.geometry_stale()
             msg = ("Warning: you changed " + ", ".join(rs) + ". The plot and signals still use the old flow; "
-                   "click Recalculate flow to update them.")
+                   "click Process Chapter to update them.")
             if geo:
                 msg += " Meanwhile the video shows a preview with the new crop."
             self.warn_text = msg
@@ -2210,6 +2177,16 @@ class App:
         dpg.set_value("chap_axmode", "angle")
         self.chapter_changed()
 
+    def set_chap_axis_from_screen(self, ux, uy):
+        """Locks the chapter's motion axis to the angle of a line drawn on the video."""
+        deg = float(np.degrees(np.arctan2(uy, ux))) % 360
+        self.chapters[self.active]["axis"] = "angle"
+        self.chapters[self.active]["axis_angle"] = deg
+        dpg.set_value("chap_axis", "angle")
+        dpg.set_value("chap_axis_ang", deg)
+        dpg.configure_item("chap_axis_ang", show=True)
+        self.chapter_changed()
+
     def chapter_end(self, i):
         if i + 1 < len(self.chapters):
             return self.chapters[i + 1]["start"]
@@ -2332,7 +2309,7 @@ class App:
             fs_arr = np.interp(t_arr, kx, ky)
             dpg.set_value("s_fs", [t_arr.tolist(), fs_arr.tolist()])
             span = max(t1 - t0, 1.0)
-            for i in range(5):
+            for i in range(2):
                 dpg.set_axis_limits(f"tx{i}", t0, t0 + min(span, 25.0))
 
     def activate(self, i, jump=True):
@@ -2498,23 +2475,35 @@ class App:
 
     # ------------------------------------------------- folder and batch
     def build_folder_panel(self):
-        self.txt("head", "Folder Videos")
-        self.txt("muted", "click name to open  ·  checkbox to include in batch",
-                 wrap=0)
-        with dpg.group(horizontal=True):
-            self.txt("muted", "legend: ")
-            dpg.add_text("[s]", color=(80, 200, 80))
-            self.txt("muted", "= script  ")
-            dpg.add_text("[c]", color=(80, 160, 220))
-            self.txt("muted", "= cache  ")
-            dpg.add_text("[c|s]", color=(200, 170, 50))
-            self.txt("muted", "= both")
+        self.txt("head", "Folder")
         with dpg.group(horizontal=True):
             dpg.add_button(label="All", tag="b_all", callback=lambda: self.mark_all(True))
             dpg.add_button(label="None", tag="b_none", callback=lambda: self.mark_all(False))
             dpg.add_button(label="No script", tag="b_missing", callback=lambda: self.mark_missing())
-        with dpg.child_window(tag="vid_rows", height=-1, border=False):
+        with dpg.child_window(tag="vid_rows", height=260, border=False):
             pass
+        dpg.add_separator()
+        with dpg.group(tag="batch_ctrl", show=False):
+            self.txt("head", "Batch")
+            dpg.add_checkbox(label="apply current crop and region to all", tag="b_same", default_value=False)
+            dpg.add_checkbox(label="detect chapters (and direction)", tag="b_chap", default_value=True)
+            dpg.add_button(label="Process selected", tag="btn_bulk", width=-1,
+                           callback=lambda: self.start_bulk())
+            dpg.add_button(label="Apply settings (without recalculating flow)", tag="btn_bulk_apply",
+                           width=-1, callback=lambda: self.start_bulk(cache_only=True))
+            dpg.add_separator()
+            dpg.add_button(label="Detect chapters for selected", tag="btn_bulk_chap", width=-1,
+                           callback=lambda: self.start_bulk_chapters())
+            with dpg.tooltip("btn_bulk_chap"):
+                dpg.add_text("Re-detect chapters and save .chapters.json for each marked video.\n"
+                             "Requires a flow cache. Manually edited chapter files are preserved\n"
+                             "unless 'redo existing scripts' is checked.", wrap=360)
+            dpg.add_text("", tag="bulk_text", wrap=0)
+            dpg.add_separator()
+            self.txt("head", "Status")
+            dpg.add_text("", tag="st_mode", color=self.pal["muted"])
+            dpg.add_progress_bar(tag="st_prog", width=-1, default_value=0.0, overlay="")
+            dpg.add_input_text(tag="st_detail", multiline=True, readonly=True, width=-1, height=150)
 
     def fill_folder(self, vids, marked=None):
         if dpg.does_item_exist("vid_rows"):
@@ -2632,13 +2621,6 @@ class App:
         dpg.add_separator()
         self.txt("muted", "Hover over any control to see its tooltip.", wrap=0)
 
-    def build_status_panel(self):
-        self.txt("head", "Processing Status")
-        dpg.add_text("", tag="st_mode", color=self.pal["muted"])
-        dpg.add_progress_bar(tag="st_prog", width=-1, default_value=0.0, overlay="")
-        dpg.add_separator()
-        dpg.add_input_text(tag="st_detail", multiline=True, readonly=True, width=-1, height=-1)
-
     def tick_status(self):
         """Called from tick(): refresh the Status window contents."""
         if not dpg.does_item_exist("st_mode"):
@@ -2710,7 +2692,7 @@ class App:
         self.bulk = True
         self.cancel_flag = False
         dpg.set_value("bulk_text", f"processing {len(vids)} video(s)...")
-        self.show_window("w_status", True)
+        self.show_window("w_folder", True)
         if cache_only:
             over = True                      # goal is to regenerate scripts with new settings
         threading.Thread(target=self.bulk_run, args=(vids, base, over, same, chap, cache_only), daemon=True).start()
@@ -2725,7 +2707,7 @@ class App:
         self.cancel_flag = False
         self._reload_after_process = self.a.video
         dpg.set_value("bulk_text", f"processing {os.path.basename(self.a.video)}...")
-        self.show_window("w_status", True)
+        self.show_window("w_folder", True)
         threading.Thread(target=self.bulk_run, args=(vids, base, True, True, True, False), daemon=True).start()
 
     def bulk_run(self, vids, base, over, same, chap, cache_only=False):
@@ -2861,7 +2843,7 @@ class App:
         self.bulk = True
         self.cancel_flag = False
         dpg.set_value("bulk_text", f"detecting chapters for {len(vids)} video(s)...")
-        self.show_window("w_status", True)
+        self.show_window("w_folder", True)
         threading.Thread(target=self.bulk_chapters_run, args=(vids, base, over), daemon=True).start()
 
     def bulk_chapters_run(self, vids, base, over):
@@ -2941,28 +2923,13 @@ class App:
         self.loaded_pts = None   # flow result supersedes any loaded script
         self.dbg = r["dbg"]
         t = r["t"]
-        tl = t.tolist()
-        for tag, y in {"s_mag": r["ch_mag"], "s_per": r["ch_period"],
-                       "s_score": r["ch_score"], "s_best": r["best"]}.items():
-            dpg.set_value(tag, [tl, y.tolist()])
         self._update_timeline_axis()
-        for tag in ("sw_line", "lim_line", "fl_line"):
-            if dpg.does_item_exist(tag):
-                dpg.delete_item(tag)
-        if r["switch_t"]:
-            dpg.add_inf_line_series(r["switch_t"], label="region switch", tag="sw_line", parent="ty0")
-        if r["flip_t"]:
-            # windows where the axis direction was decided by continuity and flipped relative to the previous window
-            dpg.add_inf_line_series(r["flip_t"], label="axis direction flipped", tag="fl_line", parent="ty1")
-        lim = float(self.a.max_speed)
-        dpg.add_inf_line_series([lim, -lim], horizontal=True, label="speed limit", tag="lim_line", parent="ty4")
-        dpg.set_axis_limits("ty4", -1.3 * lim, 1.3 * lim)
         self.ov_dirty = True
         if self.fresh:
             self.fresh = False
             self.t = float(t[0])
             span = float(t[-1] - t[0])
-            for i in range(5):
+            for i in range(2):
                 dpg.set_axis_limits(f"tx{i}", float(t[0]), float(t[0] + min(span, 25.0)))
             if self.tempo_ini is not None:
                 self.t = float(t[0] + self.tempo_ini)
@@ -3273,69 +3240,6 @@ class App:
         self.draw_sel(canvas)
         self.buf[..., :3] = canvas[..., ::-1] * (1.0 / 255.0)
 
-    def refresh_inspector(self, k):
-        d = self.dbg[k]
-        fps, a = self.fps(), self.a
-        dpg.set_value("in_win", f"Window {k + 1}/{len(self.dbg)}   {d['start'] / fps + a.start:.1f}s to {d['end'] / fps + a.start:.1f}s")
-        parts = [f"{a.period_weight:.2f}×P + {1 - a.period_weight:.2f}×M"]
-        pf = getattr(a, "roi_period_floor", 0.0)
-        sw = getattr(a, "roi_sine_weight", 0.0)
-        dw = getattr(a, "roi_dist_weight", 0.0)
-        cl = getattr(a, "roi_calm", 0.0)
-        if pf > 0:
-            parts.append(f"clamp(P/{pf:.2f})")
-        if sw > 0:
-            parts.append(f"({1 - sw:.2f}+{sw:.2f}×S)")
-        cw = getattr(a, "roi_chapter_weight", 0.0)
-        if cl > 0:
-            parts.append(f"clamp(motion/{cl:.2f}×chap)")
-        if cw > 0:
-            parts.append(f"max(0,1-{cw:.2f}×d_chap)")
-        if dw > 0:
-            parts.append(f"max(0,1-{dw:.2f}×dist)")
-        dpg.set_value("in_formula", "score = " + " × ".join(parts))
-        score_min = getattr(a, "roi_score_min", 0.0)
-        cands = sorted(d["cands"], key=lambda c: -c["score"])
-        for i in range(MAXC):
-            if i < len(cands):
-                c = cands[i]
-                valid = score_min == 0.0 or c["score"] >= score_min
-                tag = "*" if (c["y"], c["x"]) == tuple(d["chosen"]) else " "
-                extra = f"  S {c['sine']:.2f}" if sw > 0 and "sine" in c else ""
-                dpg.configure_item(f"ct{i}", default_value=f"{tag}y{c['y']:>2} x{c['x']:>2}  M {c['mag']:.2f}  P {c['period']:.2f}{extra}",
-                                   color=PALETTE_RGB[c["i"] % len(PALETTE_RGB)])
-                dpg.set_value(f"cb{i}", min(max(c["score"], 0.0), 1.0))
-                dpg.configure_item(f"cb{i}", overlay=f"{c['score']:.2f}", show=True,
-                                   height=14 if valid else 4)
-            else:
-                dpg.configure_item(f"ct{i}", default_value="")
-                dpg.configure_item(f"cb{i}", show=False)
-        for i in range(MAXC):
-            c = next((c for c in d["cands"] if c["i"] == i), None)
-            if c is not None and c.get("ac"):
-                ac = c["ac"]["ac"]
-                dpg.set_value(f"ac{i}", [(np.arange(len(ac)) / fps).tolist(), ac.tolist()])
-                dpg.configure_item(f"ac{i}", show=True)
-            else:
-                dpg.configure_item(f"ac{i}", show=False)
-        if d["fixed"]:
-            for tag in ("in_prev", "in_thr", "in_best"):
-                dpg.set_value(tag, "")
-            dpg.set_value("in_dec", "Fixed region: no automatic decision")
-            return
-        if d["prev"] is None:
-            dpg.set_value("in_prev", "No previous region.")
-            dpg.set_value("in_thr", "")
-        else:
-            dpg.set_value("in_prev", f"Previous region y{d['prev'][0]} x{d['prev'][1]}: stored {d['prev_score']:.2f}, now {d['now']['score']:.2f}")
-            dpg.set_value("in_thr", f"Threshold = {a.switch:.2f} x {d['prev_score']:.2f} = {d['threshold']:.2f}")
-        dpg.set_value("in_best", f"Best candidate y{d['best'][0]} x{d['best'][1]}: {d['best_score']:.2f}")
-        if d["switched"]:
-            dpg.configure_item("in_dec", default_value="SWITCHED region" if d["prev"] else "INITIAL CHOICE", color=(60, 255, 60))
-        else:
-            why = "already the best" if d["best"] == d["prev"] else "did not pass threshold"
-            dpg.configure_item("in_dec", default_value=f"KEPT ({why})", color=(255, 165, 0))
-
     # -------------------------------------------------------------- main loop
     def tick(self):
         now = time.perf_counter()
@@ -3404,13 +3308,6 @@ class App:
                     self.playing = False
         if self.src is not None and (self.dirty_view or self.playing):
             self.dirty_view = False
-            if self.res is not None:
-                r = self.res
-                ti = self.frame_index()
-                k = int(r["widx"][ti])
-                if k != self.cur_win:
-                    self.cur_win = k
-                    self.refresh_inspector(k)
             self.render()
             if self.res is not None:
                 r = self.res
@@ -3419,11 +3316,11 @@ class App:
             elif self.src is not None:
                 dpg.set_value("t_label", f"{self.t:.2f} s")
             if time.time() > self.drag_until:
-                for i in range(5):
+                for i in range(2):
                     dpg.set_value(f"ph{i}", self.t)
-            if self.playing and dpg.get_value("follow"):
+            if self.playing:
                 lo = self.t - dpg.get_value("follow_w") * 0.5
-                for i in range(5):
+                for i in range(2):
                     dpg.set_axis_limits(f"tx{i}", lo, lo + dpg.get_value("follow_w"))
 
     def step(self):

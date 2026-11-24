@@ -7,7 +7,6 @@ import funautoscripter as fl
 from .utils import config_path, mix
 
 CW, CH = 576, 324          # video canvas size in pixels
-MAXC = 8                    # candidates shown in the inspector
 PALETTE_RGB = [(c[2], c[1], c[0]) for c in fl.PALETTE]   # engine uses BGR
 
 # (group, attribute, label, type, min, max or options, format, stage)
@@ -33,12 +32,12 @@ PARAMS = [
     ("Region", "roi_calm", "calm threshold", "float", 0.0, 1.0, "%.2f", "c"),
     ("Region", "roi_period_floor", "min periodicity to switch", "float", 0.0, 1.0, "%.2f", "c"),
     ("Region", "roi_sine_weight", "sinusoidality weight", "float", 0.0, 1.0, "%.2f", "c"),
-    ("Region", "candidates", "candidates (inspector)", "int", 3, 12, "%d", "c"),
+    ("Region", "candidates", "region candidates evaluated", "int", 3, 12, "%d", "c"),
     ("Region", "axis", "axis", "combo", None, ["auto", "angle"], None, "c"),
     ("Region", "axis_angle", "angle (degrees)", "float", 0.0, 360.0, "%.1f", "c"),
     ("Region", "axis_ref", "100 points to", "combo", None, ["chapter", "down", "up", "left", "right", "auto"], None, "c"),
     ("Region", "axis_margin", "direction margin", "float", 0.0, 0.9, "%.2f", "c"),
-    ("Region", "axis_lock", "axis lock (°)", "float", 0.0, 90.0, "%.0f", "c"),
+    ("Region", "axis_lock", "axis lock (deg)", "float", 0.0, 90.0, "%.0f", "c"),
     ("Region", "noise", "noise (px/frame)", "float", 0.0, 0.3, "%.3f", "c"),
     ("Signal", "bg_subtract", "background subtract", "float", 0.0, 1.0, "%.2f", "c"),
     ("Signal", "highpass", "highpass (Hz)", "float", 0.02, 1.0, "%.2f", "c"),
@@ -80,7 +79,7 @@ PARAMS = [
       "cuts,angle,soft", "cuts,zone,soft"], None, "d"),
     ("Auto Chapters", "chap_soft", "soft transitions", "float", 0.0, 1.0, "%.2f", "d"),
     ("Auto Chapters", "chap_soft_span", "time each side (s)", "float", 1.0, 6.0, "%.1f", "d"),
-    ("Auto Chapters", "chap_angle", "axis change (°)", "float", 10.0, 80.0, "%.0f", "d"),
+    ("Auto Chapters", "chap_angle", "axis change (deg)", "float", 10.0, 80.0, "%.0f", "d"),
     ("Auto Chapters", "chap_shift", "zone change", "float", 0.1, 0.8, "%.2f", "d"),
     ("Auto Chapters", "chap_persist", "must last (s)", "float", 1.0, 20.0, "%.1f", "d"),
     ("Auto Chapters", "chap_min", "min chapter (s)", "float", 2.0, 90.0, "%.0f", "d"),
@@ -95,6 +94,26 @@ PARAMS = [
     ("Flow (needs recalculation)", "cell", "cell (px)", "int", 6, 24, "%d", "f"),
     ("Flow (needs recalculation)", "fps", "analysis fps", "combo", None, ["15", "20", "24", "30", "60"], None, "f"),
 ]
+
+# Attribute promoted out of its group onto the Control toolbar, next to the preset picker.
+# Keep this short: only safe, single-purpose, obviously-useful-on-day-one controls belong here.
+BOOT_ATTRS = ("invert",)
+
+# Named categories in the Settings window's sidebar. Each nests the PARAMS groups listed.
+# Chapters/Auto Chapters are NOT here - they're per-video state, shown in the Chapters window.
+# VR/3D and Dual Axis are split into their own categories (rather than folded into Motion &
+# Region) since they only matter to the subset of users who actually shoot VR or own a
+# dual-axis device - most people never open them.
+CATEGORIES = [
+    ("Enhancement", ["Enhancement", "Treble Enhancement"]),
+    ("Motion & Region", ["Region"]),
+    ("Signal & Keyframes", ["Signal", "Keyframes"]),
+    ("Dual Axis", ["Dual Axis", "Axis 2"]),
+    ("VR / 3D", []),   # no PARAMS group; built directly (crop combo + edge-crop slider)
+    ("Performance", ["Processing Speed", "Flow (needs recalculation)"]),
+    ("Presets", []),   # no PARAMS group; built directly (preset management widgets)
+]
+
 TIPS = {
     "hp2": "Cuts the low frequencies from the scaled funscript. Removes slow oscillation and preserves fast strokes. 0 disables.",
     "hfboost": "Boosts content above the treble frequency. 1 doubles fast-stroke amplitude relative to slow strokes. 0 disables.",
@@ -109,15 +128,15 @@ TIPS = {
     "roi_aspect": "Width/height ratio of the automatic region. 1 is square, 2 is twice as wide, 0.5 twice as tall. 0 uses the video's ratio.",
     "roi_window": "How often (in seconds) the best region is re-evaluated.",
     "switch": "The new region must score this many times more than the current one to replace it. Higher means the region changes less.",
-    "roi_score_min": "Hard minimum effective score for a region switch. If the best candidate's effective score (after all multipliers) is below this value, the current region is always kept — regardless of how low the previous score was. Prevents a 0.08 from beating a 0.06 and triggering a switch. 0 disables.",
+    "roi_score_min": "Hard minimum effective score for a region switch. If the best candidate's effective score (after all multipliers) is below this value, the current region is always kept, regardless of how low the previous score was. Prevents a 0.08 from beating a 0.06 and triggering a switch. 0 disables.",
     "period_weight": "0 picks the region by motion alone, 1 by periodicity (rhythmic back-and-forth) alone.",
-    "roi_dist_weight": "Scales candidate effective score by distance from the current region: factor = max(0, 1 - weight × d), where d is distance divided by the grid diagonal. At 2.0, candidates at the opposite corner score 0 when the current region is at center (d=0.5). At 1.0, only a candidate at the full diagonal away scores 0. 0 disables.",
+    "roi_dist_weight": "Scales candidate effective score by distance from the current region: factor = max(0, 1 - weight x d), where d is distance divided by the grid diagonal. At 2.0, candidates at the opposite corner score 0 when the current region is at center (d=0.5). At 1.0, only a candidate at the full diagonal away scores 0. 0 disables.",
     "roi_chapter_weight": "Pulls every candidate toward the chapter's most active region (highest average magnitude across all chapter frames). Same scale as proximity bonus: at 2.0 the borders score 0 when the best region is at center. Unlike proximity bonus this anchor is fixed for the whole chapter, so it also stabilises the first window when there is no previous region. 0 disables.",
     "roi_calm": "If a window's average motion is below this fraction of the chapter's average, the current region is kept without evaluating candidates. 0.3 means: if motion drops below 30% of the chapter average, lock the region. Prevents the region from drifting to background noise during pauses. 0 disables.",
     "roi_period_floor": "Minimum periodicity score (0 to 1) the winning candidate must have to trigger a region switch. If no candidate is rhythmic enough, the current region is kept. Useful to prevent switching to random noise or slow drift. 0 disables.",
-    "roi_sine_weight": "Scales each candidate's score by its sinusoidality: R² of the best-fit sine at the dominant frequency. 0 disables. At 1.0 the score is fully multiplied by sinusoidality: square waves, irregular bursts or noisy oscillations score near zero even if periodic. A pure sine scores 1.0; a square wave scores ~0.4; random noise near 0.",
-    "candidates": "Number of region candidates evaluated and shown per window. Higher = more thorough but slower region selection.",
-    "axis": "auto follows the principal direction of motion (PCA). angle locks the axis to a fixed screen angle set by the slider below (90° = vertical).",
+    "roi_sine_weight": "Scales each candidate's score by its sinusoidality: R^2 of the best-fit sine at the dominant frequency. 0 disables. At 1.0 the score is fully multiplied by sinusoidality: square waves, irregular bursts or noisy oscillations score near zero even if periodic. A pure sine scores 1.0; a square wave scores ~0.4; random noise near 0.",
+    "candidates": "Number of region candidates evaluated per window. Higher = more thorough but slower region selection.",
+    "axis": "auto follows the principal direction of motion (PCA). angle locks the axis to a fixed screen angle set by the slider below (90 deg = vertical).",
     "axis_angle": "Forced axis angle in screen degrees (0 = right, 90 = down, 180 = left, 270 = up). Only used when axis = angle.",
     "axis_ref": "Which end of the axis is 100. chapter uses the chapter's dominant direction, down/up/left/right fix a screen direction, auto only follows the previous window. Each chapter can have its own.",
     "axis_margin": "If a window's axis is nearly perpendicular to the reference (cosine below this), the direction is ambiguous and follows the previous window.",
@@ -131,9 +150,9 @@ TIPS = {
     "low_pct": "Signal percentile mapped to 0.",
     "high_pct": "Signal percentile mapped to 100.",
     "floor": "Minimum local range relative to the typical range. Prevents amplifying noise during pauses.",
-    "invert": "Inverts the entire funscript. To invert only one chapter use the chapter checkbox (key I).",
+    "invert": "Inverts the entire funscript. To invert only one chapter, use the chapter checkbox in the Chapters window (key I).",
     "dual_axis": "Generate a second funscript for the motion perpendicular to the primary axis. Saved as <name>.<axis2>.funscript alongside the primary.",
-    "axis_id": "TCode axis label for the primary funscript (L0 = stroke, L1 = surge, L2 = sway, R0 = twist, R1 = roll, R2 = pitch). Label only — does not change the motion analysis.",
+    "axis_id": "TCode axis label for the primary funscript (L0 = stroke, L1 = surge, L2 = sway, R0 = twist, R1 = roll, R2 = pitch). Label only - does not change the motion analysis.",
     "axis2_id": "TCode axis label for the secondary (perpendicular) funscript. The file is saved as <name>.<axis2>.funscript.",
     "dual_axis_invert": "Invert the secondary (perpendicular) axis.",
     "a2_link": "When on, the secondary axis uses the same signal settings as the primary. Uncheck to reveal independent sliders for the perpendicular axis.",
@@ -179,65 +198,64 @@ TIPS = {
 TIPS_UI = {
     "b_open": "Choose a video to analyse.",
     "b_dir": "Choose a folder to process multiple videos in batch.",
-    "btn_flow": "Recalculate optical flow for the active chapter.  Shortcut: R",
-    "btn_save_top": "Save the funscript to disk.  Shortcut: Ctrl+S",
+    "btn_open_video": "Open a single video to work on.  Shortcut: Ctrl+O",
+    "btn_open_folder": "Open a folder to process many videos at once, in the Folder window.  Shortcut: Ctrl+Shift+O",
+    "btn_process": "Compute flow, generate script and save for the open video - all in one step. Uses current parameters and settings. To process many videos at once, use 'Process Marked Videos' in the Folder window.",
+    "btn_flow": "Calculate optical flow for the active chapter.  Shortcut: R",
+    "btn_save_top": "Save the funscript to disk. Process already saves automatically - use this only after a manual correction.  Shortcut: Ctrl+S",
     "btn_cancel": "Stop current computation.  Shortcut: Esc",
     "btn_play": "Play or pause (space).",
-    "p_speed": "Playback speed.",
-    "follow": "The signal plots follow the cursor.",
-    "follow_w": "Width in seconds of the visible signal window when following the cursor.",
+    "p_speed": "Playback speed. Seek by clicking in the Overview window.",
+    "follow_w": "Width in seconds of the visible signal window when following the cursor. The Integral scale follows only the visible range.",
     "ly_roi": "Green box: the region the motion is extracted from.",
     "ly_cand": "Region candidates and their scores. The yellow one is the previous region when it changed.",
     "ly_heat": "Heat map of the average motion in the current window.",
     "ly_mag": "Flow magnitude of the current frame.",
     "ly_per": "Periodicity of each candidate: how rhythmic the back-and-forth is.",
-    "ly_axis": "Compass showing the axis-ref and velocity (yellow) and position (magenta) vectors, with the 0 and 100 ends marked.",
-    "sel_mode": "region: fixes the analysis region. zoom: analyses only a sub-area (recalculates flow). direction: draw where 100 points.",
-    "b_sel_apply": "Applies the drawn rectangle as region or zoom.",
-    "b_sel_clear": "Clears the region, zoom or chapter direction, depending on the current mode.",
+    "ly_axis": "Compass showing the chapter's direction setting and velocity (yellow) and position (magenta) vectors, with the 0 and 100 ends marked.",
+    "sel_mode": "Automatic already finds and tracks motion on its own - try Process first and only switch to a manual mode to correct it. Region: fixes which part of the frame is tracked (does not need flow recalculation). Crop: trims the video before analysis, for subtle or small motion (requires Calculate Flow for Chapter). Direction: draw where 100 (the top of the stroke) points.",
+    "b_sel_apply": "Applies the drawn rectangle as region or crop.",
+    "b_sel_clear": "Clears the region, crop or chapter direction, depending on the current mode.",
     "p_crop": "For 3D or VR videos, analyses only one half.",
-    "p_vr_zoom": "Trims this percentage from each edge of the VR half to remove fisheye distortion. Stacks with per-chapter zoom. Triggers flow recalculation.",
+    "p_vr_zoom": "Trims this percentage from each edge of the VR half to remove fisheye distortion. Stacks with per-chapter crop. Triggers flow recalculation.",
     "p_live": "On: sliders recalculate while dragging. Off: sliders only change the value and calculation happens on Apply Changes (Enter).",
     "btn_apply": "Apply pending parameter changes.  Shortcut: Enter",
-    "chap_inv": "Inverts only this chapter (key I). Saved to .chapters.json.",
+    "chap_inv": "Inverts only this chapter, to correct the direction at the end (key I). Saved to the video's .chapters.json.",
+    "chap_excl": "Chapter contributes no keyframes when saving. Flow cache is kept.",
     "chap_axmode": "Where 100 points in this chapter. \"angle\" uses the slider value. Only takes effect on Apply Direction.",
     "chap_ang": "Direction of 100 on screen in degrees: 0 = right, 90 = down, 180 = left, 270 = up. Only takes effect on Apply Direction.",
     "btn_apply_axis": "Applies the selected direction and angle to this chapter.",
-    "b_axis_draw": "Draw the axis-ref direction on the video.  Shortcut: D",
-    "p_preset": "Load a preset. Parameters that differ from it are highlighted in orange.",
-    "preset_name": "Name under which to save the current parameters as your own preset.",
+    "chap_axis": "inherit = use the global axis setting from Settings.",
+    "btn_apply_chap_axis": "Locks this chapter's motion axis to the selected mode and angle.",
+    "b_chap_axis_draw": "Draw the chapter's motion axis as a line directly on the video.",
+    "p_preset": "Load a preset. Signal parameters only (does not affect flow or invert). Parameters that differ from it are highlighted in orange.",
+    "p_invert_boot": "Inverts the entire funscript. To invert only one chapter use the chapter checkbox in the Chapters window (key I).",
+    "preset_diff_short": "How many settings differ from the loaded preset. See Settings > Presets for the full list.",
+    "preset_name": "Name under which to save the current parameters as your own preset. Signal parameters only - does not affect flow or invert.",
     "b_pre_save": "Saves the current parameters as a preset with this name.",
     "b_pre_del": "Deletes your selected preset.",
     "b_pre_reset": "Resets to the reference preset values.",
-    "chap_list": "Video chapters. Click to activate one (also [ and ]).",
+    "chap_list": "Video chapters. Click to activate one (also [ and ]). Each chapter has its own direction, zoom and region; the funscript joins them over time. Without chapters, the whole video is one.",
     "b_chap_new": "Splits the chapter at the current cursor position.  Shortcut: N",
     "b_chap_del": "Merges this chapter into the previous one.",
     "b_chap_del_all": "Removes all chapters and resets to a single chapter covering the whole video.",
     "b_chap_flow": "Computes the flow for all chapters that do not have it yet.",
-    "btn_suggest": "Detects cuts and motion changes and splits the video into chapters automatically.  Shortcut: G",
+    "btn_suggest": "Detects cuts and axis or zone changes from the full video flow and assigns each chapter its direction. Settings are in \"Auto Detection\" below, and only take effect when clicking this button (or in batch with --chapters detect).  Shortcut: G",
     "out_path": "Where the funscript is saved.",
-    "b_save": "Saves the funscript (Ctrl+S).",
+    "vid_rows": "Click a video's name to open it, check its box to include it in batch. Legend: [s] = has a script, [c] = has a flow cache, [c|s] = both.",
     "b_all": "Marks all videos.",
     "b_none": "Unmarks all.",
     "b_missing": "Marks only videos that do not yet have a funscript.",
-    "b_over": "Also redoes videos that already have a funscript.",
-    "b_same": "Uses the current zoom and region for all videos in the batch.",
-    "b_chap": "Detects chapters (and each chapter's axis-ref) for each video if it has no .chapters.json.",
+    "b_over": "Allows Save (and batch processing) to overwrite a video that already has a funscript. Off by default to avoid accidental overwrites.",
+    "b_same": "Uses the current crop and region for all videos in the batch.",
+    "b_chap": "Detects chapters (and each chapter's direction) for each video if it has no .chapters.json.",
     "btn_bulk": "Processes the marked videos one after another.",
     "btn_bulk_apply": "Redoes the funscript for marked videos using current settings, only from cached flow. Never computes flow: videos without valid cache for the current width, cell and fps are skipped and shown in the summary. Also redoes videos that already have a script.",
-    "show_raw": "Shows the unfiltered integral on the right axis.",
     "ov_mode": "Which quantity colours the timeline. Hover over (?) to see each one.",
 }
-AUTO_HELP = ("Overall sensitivity: above 0.5 all thresholds go down (more chapters), below they go up.\n"
-             "Split by: cuts = hard cuts, soft = soft transitions (fades, dissolves, slowly changing scenes), "
-             "angle = motion axis rotates, zone = motion moves to another screen area.\n"
-             "Axis change (°) and zone change: how much the axis or zone must shift. Must last (s): how long "
-             "the change must persist (a short pause will not split a chapter). Min chapter: shorter ones are merged.\n"
-             "Soft transitions: own sensitivity, and the time on each side compared (the transition must be "
-             "shorter than this).\n"
-             "Cut: times normal and min motion (px) decide what counts as a cut peak.\n"
-             "Settings only take effect when clicking \"Suggest chapters\" (or in batch with --chapters detect).")
 AXMODES = ["(from settings)", "chapter", "down", "up", "left", "right", "auto", "angle"]
+SEL_MODES = [("none", "Automatic"), ("region", "Region (tracked area)"),
+             ("zoom", "Crop (before analysis)"), ("axis", "Direction (where 100 points)")]
 CROPS = {"full video": None, "SBS, left half": "left", "SBS, right half": "right",
          "TB, top half": "top", "TB, bottom half": "bottom"}
 
@@ -248,8 +266,8 @@ CH_COLORS = [(70, 120, 200), (60, 170, 130), (190, 110, 60), (150, 90, 190), (18
 # Dockable windows: (tag, title, open by default). The title is the key in the layout file,
 # so it must not be changed (otherwise windows reset to their initial position).
 WINDOWS = [("w_ctrl", "Control", True), ("w_video", "Video", True), ("w_vidctrl", "Video Controls", True),
-           ("w_ov", "Overview", True), ("w_params", "Parameters", True), ("w_insp", "Inspector", True),
-           ("w_tl", "Signals", True), ("w_folder", "Folder Videos", False), ("w_status", "Status", False)]
+           ("w_chapters", "Chapters", True), ("w_ov", "Overview", True), ("w_params", "Settings", True),
+           ("w_tl", "Signals", True), ("w_folder", "Folder", False)]
 
 # Each theme starts from three colours (background, text, accent) and derives the rest from them.
 # head = headings, muted = secondary text, warn = warnings, fg = lines that must contrast with the background.
@@ -312,6 +330,14 @@ BUILTIN_PRESETS = {
                  "May amplify noise during pauses.", {
         "hp2": 0.6, "hfboost": 1.5, "hf_freq": 1.5, "renorm": 4.0, "renorm_floor": 0.25,
         "boost": 1.3, "gain": 1.1, "noise": 0.03, "min_amp": 8.0}),
+    "Precise Agressive": ("Fast, detailed response with a stable tracked region: tuned region-stability "
+                          "weights (period, chapter pull, calm, sine shape, distance) resist false switches "
+                          "while keeping full-frequency detail.", {
+        "roi": 0.2, "roi_aspect": 1.0, "roi_window": 2.0, "switch": 0.5, "roi_score_min": 0.15,
+        "period_weight": 0.6, "roi_dist_weight": 0.5, "roi_chapter_weight": 0.7, "roi_calm": 0.3,
+        "roi_period_floor": 0.4, "roi_sine_weight": 0.3, "noise": 0.03, "highpass": 0.46, "lowpass": 14.0,
+        "norm_window": 15.0, "floor": 0.3, "hfboost": 1.4,
+        "min_amp": 8.0, "min_interval": 0.21, "max_speed": 1000.0}),
 }
 
 

@@ -202,6 +202,9 @@ TIPS_UI = {
     "btn_open_folder": "Open a folder to process many videos at once, in the Folder window.  Shortcut: Ctrl+Shift+O",
     "btn_process": "Compute flow, generate script and save for the open video - all in one step. Uses current parameters and settings. To process many videos at once, use 'Process Marked Videos' in the Folder window.",
     "btn_flow": "Calculate optical flow for the active chapter.  Shortcut: R",
+    "btn_match_cache": "This video already has a flow cache on disk, but your current crop/zoom/width/cell/fps "
+                       "settings don't match it. Click to copy the settings the cache was computed with, so it "
+                       "loads instantly instead of recalculating.",
     "btn_save_top": "Save the funscript to disk. Process already saves automatically - use this only after a manual correction.  Shortcut: Ctrl+S",
     "btn_cancel": "Stop current computation.  Shortcut: Esc",
     "btn_play": "Play or pause (space).",

@@ -428,29 +428,56 @@ def cache_path(a):
 
 
 _VALID = {}
+_PARAMS_CACHE = {}
 
 
-def read_cache_vr_zoom(a):
-    """Return the vr_zoom stored in the flow cache key, or 0.0 if not present / unreadable.
-    Checks the whole-video cache and, if absent, the first chapter cache."""
-    candidates = [cache_path(a)]
-    # check chapter caches if the main one is missing
+def read_cache_flow_params(a):
+    """Reads width/cell/fps/crop/vr_zoom/zoom from an on-disk flow cache's key, regardless of
+    whether current settings match (used to sync the GUI to an existing cache). Always checks the
+    whole-video cache path, ignoring a.cache_tag: with chapters, a.cache_tag may be ".chN" for the
+    active chapter even though it slices the whole-video cache file (no chapter cache exists on
+    disk unless that chapter has its own zoom), so using a.cache_tag directly would look for the
+    wrong file and silently fail. Falls back to any per-chapter cache if the main one is missing.
+    Returns None if no readable cache exists. Memoized by file mtime/size (this is polled every
+    GUI frame to toggle a warning button, so re-reading the .npz header every time would be wasteful)."""
+    main = copy.copy(a)
+    main.cache_tag = ""
+    candidates = [cache_path(main)]
     import glob as _glob
     candidates += sorted(_glob.glob(a.output + ".ch*.flowcache.npz"))
     for cp in candidates:
         try:
             if not os.path.exists(cp):
                 continue
+            st = os.stat(cp)
+            mk = (cp, st.st_mtime, st.st_size)
+            if mk in _PARAMS_CACHE:
+                cached = _PARAMS_CACHE[mk]
+                if cached is not None:
+                    return cached
+                continue
             z = np.load(cp, allow_pickle=False)
             key = json.loads(str(z["key"]))
             # key: [version, size, sw, sh, width, cell, fps, crop, (opt vr_zoom), zoom, start, dur]
-            # vr_zoom is at index 8 when present (12 elements total)
-            if len(key) == 12 and isinstance(key[8], (int, float)):
-                return float(key[8])
-            return 0.0
+            if len(key) not in (11, 12):
+                _PARAMS_CACHE[mk] = None
+                continue
+            has_vr = len(key) == 12
+            params = {
+                "width": int(key[4]), "cell": int(key[5]), "fps": int(key[6]), "crop": key[7],
+                "vr_zoom": float(key[8]) if has_vr else 0.0, "zoom": key[9] if has_vr else key[8],
+            }
+            _PARAMS_CACHE[mk] = params
+            return params
         except Exception:
             continue
-    return 0.0
+    return None
+
+
+def read_cache_vr_zoom(a):
+    """Return the vr_zoom stored in the flow cache key, or 0.0 if not present / unreadable."""
+    params = read_cache_flow_params(a)
+    return params["vr_zoom"] if params else 0.0
 
 
 def cache_valid(a):

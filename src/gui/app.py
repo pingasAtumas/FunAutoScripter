@@ -83,7 +83,7 @@ class App:
         self.vplot_pan_anchor = None  # (sx, sy, x0, x1, y0, y1) for right-drag pan
         self.vplot_wheel = 0.0      # accumulated wheel delta from handler
         self.show_axis = "primary"  # "primary" or "secondary" — which script is shown in timeline
-        self._reload_after_process = None  # path to reload after start_process_current completes
+        self._reload_after_process = None  # path to reload once a process/batch run finishes
         self.loaded_pts = None
         self.last_slider = None   # (tag, lo, hi, kind, step) — last interacted slider for Ctrl+arrow nudge
         self.cur_win = -1
@@ -255,6 +255,42 @@ class App:
         names = {"crop": "3D/VR crop", "vr_zoom": "VR edge crop", "zoom": "zoom",
                  "width": "analysis width", "cell": "cell size", "fps": "analysis fps"}
         return [names[k] for k in names if now[k] != self.sig[k]]
+
+    def cache_mismatch(self):
+        """A flow cache exists on disk for this video, but current settings don't match it
+        (so it won't be picked up automatically)."""
+        return bool(self.a.video) and not self.cache_ok() and fl.read_cache_flow_params(self.a) is not None
+
+    def match_settings_to_cache(self):
+        """Copies crop/zoom/width/cell/fps from the on-disk flow cache onto current settings,
+        so the existing cache is valid again and loads instantly instead of recomputing."""
+        if not self.a.video:
+            return
+        params = fl.read_cache_flow_params(self.a)
+        if params is None:
+            self.status = "no flow cache found for this video"
+            return
+        a = self.a
+        a.crop, a.vr_zoom, a.zoom = params["crop"], params["vr_zoom"], params["zoom"]
+        a.width, a.cell, a.fps = params["width"], params["cell"], params["fps"]
+        if dpg.does_item_exist("p_crop"):
+            name = next((k for k, v in CROPS.items() if v == a.crop), "full video")
+            dpg.set_value("p_crop", name)
+        is_vr = a.crop in ("left", "right", "top", "bottom")
+        if dpg.does_item_exist("p_vr_zoom"):
+            dpg.set_value("p_vr_zoom", int(round(a.vr_zoom * 100)))
+            dpg.configure_item("p_vr_zoom", show=is_vr)
+        if dpg.does_item_exist("p_width"):
+            dpg.set_value("p_width", a.width)
+        if dpg.does_item_exist("p_cell"):
+            dpg.set_value("p_cell", a.cell)
+        if dpg.does_item_exist("p_fps"):
+            dpg.set_value("p_fps", str(a.fps))
+        self.update_sel_text()
+        self.sync_chapter()
+        self.warn_key = None
+        self.reset_flow_state(request=True)
+        self.status = "settings matched to the existing flow cache"
 
     # ------------------------------------------------------------------ background worker
     def request_compute(self):
@@ -605,7 +641,10 @@ class App:
                 dpg.add_text("", tag="status")
                 with dpg.tooltip("status"):
                     dpg.add_text("", tag="status_tip", wrap=600)
-            self.txt("warn", "", tag="warn")
+            with dpg.group(horizontal=True):
+                self.txt("warn", "", tag="warn")
+                dpg.add_button(label="Match settings to cached flow", tag="btn_match_cache", show=False,
+                               callback=lambda: self.match_settings_to_cache())
             with dpg.tooltip("warn"):
                 dpg.add_text("", tag="warn_tip", wrap=600)
         with self.win("w_video", shown):
@@ -1976,10 +2015,13 @@ class App:
     def update_warning(self):
         rs = self.stale_reasons()
         no_flow = self.sig is None and self.src is not None and not self.busy()
-        key = (tuple(rs), no_flow)
+        mismatch = self.cache_mismatch()
+        key = (tuple(rs), no_flow, mismatch)
         if key == getattr(self, "warn_key", None):
             return
         self.warn_key = key
+        if dpg.does_item_exist("btn_match_cache"):
+            dpg.configure_item("btn_match_cache", show=mismatch)
         if no_flow:
             self.warn_text = ("Warning: this video has no computed flow yet. Set the crop and zoom while watching "
                               "the video, then click Process Chapter when ready.")
@@ -2695,6 +2737,8 @@ class App:
         self.show_window("w_folder", True)
         if cache_only:
             over = True                      # goal is to regenerate scripts with new settings
+        if self.a.video in vids:             # reload it afterward so flow/script reflect what was just written
+            self._reload_after_process = self.a.video
         threading.Thread(target=self.bulk_run, args=(vids, base, over, same, chap, cache_only), daemon=True).start()
 
     def start_process_current(self):

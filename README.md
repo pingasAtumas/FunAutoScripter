@@ -14,6 +14,8 @@ Built on classical optical flow (OpenCV Farneback). No AI, no neural networks, n
 
 ## Usage
 
+Command line prompt using source
+
 ```bash
 nix-shell
 python funautoscripter.py video.mp4
@@ -21,6 +23,8 @@ python funautoscripter.py video.mp4 --plot debug.png
 python funautoscripter.py folder/
 python funautoscripter.py folder/ --recursive --overwrite
 ```
+
+If you just want to run the app download the funautoscripter-gui.exe for windows or the funautoscripter-gui binary for linux in the release page
 
 ## Features
 
